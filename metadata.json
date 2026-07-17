@@ -1,0 +1,6 @@
+{
+  "name": "Flow RH",
+  "description": "Plataforma SaaS de Employee Experience (EX), mural corporativo, onboarding automatizado e controle de ponto inteligente com validação biométrica facial.",
+  "requestFramePermissions": ["camera", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
