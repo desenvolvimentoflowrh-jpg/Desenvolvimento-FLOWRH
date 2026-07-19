@@ -75,11 +75,13 @@ header {
 }
 
 /* Left Sidebar glassmorphism - thin, frosted Slate or Corporate Blue */
-aside {
-  background: rgba(15, 23, 42, 0.85) !important;
+div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > aside:nth-of-type(1) {
+  background: linear-gradient(180deg, rgba(10, 18, 40, 0.94) 0%, rgba(3, 7, 20, 0.97) 100%) !important;
   backdrop-filter: blur(24px) !important;
   -webkit-backdrop-filter: blur(24px) !important;
-  border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-right: 1.5px solid rgba(0, 67, 255, 0.25) !important;
+  box-shadow: 4px 0 24px rgba(0, 67, 255, 0.08) !important;
+  transition: all 0.3s ease;
 }
 
 /* Simulation banner glassmorphism */
@@ -103,3 +105,35 @@ footer {
   scrollbar-width: thin;
   scrollbar-color: rgba(0, 0, 0, 0.1) transparent;
 }
+
+/* Falling Swirl Snowflakes animation */
+@keyframes fall-and-sway {
+  0% {
+    transform: translateY(-8vh) translateX(0) rotate(0deg);
+    opacity: 0;
+  }
+  15% {
+    opacity: var(--swirl-opacity, 0.08);
+  }
+  85% {
+    opacity: var(--swirl-opacity, 0.08);
+  }
+  100% {
+    transform: translateY(108vh) translateX(var(--sway-distance, 40px)) rotate(var(--rotate-degree, 360deg));
+    opacity: 0;
+  }
+}
+
+.falling-swirl {
+  position: absolute;
+  top: 0;
+  pointer-events: none;
+  animation: fall-and-sway var(--fall-duration, 15s) linear infinite;
+  animation-delay: var(--fall-delay, 0s);
+  left: var(--left-pos, 50%);
+  width: var(--swirl-size, 24px);
+  height: var(--swirl-size, 24px);
+  color: #213af6 !important;
+  will-change: transform, opacity;
+}
+

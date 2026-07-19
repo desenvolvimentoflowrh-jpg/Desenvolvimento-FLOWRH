@@ -33,7 +33,12 @@ import {
   UserCheck,
   Lock,
   RefreshCw,
-  Vote
+  Vote,
+  Edit2,
+  Trash2,
+  User,
+  Mail,
+  Shield
 } from "lucide-react";
 
 import { UserRole, UserProfile, Company, Invitation, TimeRecord, Comment, PollOption, Poll, BadgeAward, Post, Training } from "./types";
@@ -68,6 +73,49 @@ export function FlowRhLogo({ size = "text-xl", textColor = "text-white", iconSiz
         <span className={`${size} font-black tracking-tight ${textColor} uppercase`}>W</span>
         <span className="text-[9px] font-bold tracking-widest ml-1 self-center uppercase bg-white/15 px-1 py-0.5 rounded text-white border border-white/10 select-none leading-none">RH</span>
       </div>
+    </div>
+  );
+}
+
+// Static random properties array to avoid layout shifts or continuous re-evaluation in render cycles
+const SWIRL_SNOWFLAKES = Array.from({ length: 35 }, (_, i) => {
+  const left = `${(i * 2.85) % 100}%`;
+  const size = `${12 + (i * 7) % 20}px`;
+  const duration = `${12 + (i * 5) % 16}s`;
+  const delay = `-${(i * 3.7) % 24}s`;
+  const sway = `${-35 + (i * 21) % 71}px`;
+  const opacity = (0.04 + ((i * 3) % 8) * 0.015).toFixed(3);
+  const rotate = `${180 + (i * 85) % 360}deg`;
+  return { id: i, left, size, duration, delay, sway, opacity, rotate };
+});
+
+export function FallingSwirlSnowflakes() {
+  return (
+    <div className="absolute inset-0 pointer-events-none select-none overflow-hidden z-0">
+      {SWIRL_SNOWFLAKES.map((swirl) => (
+        <svg
+          key={swirl.id}
+          viewBox="0 0 100 100"
+          className="falling-swirl"
+          style={{
+            "--left-pos": swirl.left,
+            "--swirl-size": swirl.size,
+            "--fall-duration": swirl.duration,
+            "--fall-delay": swirl.delay,
+            "--sway-distance": swirl.sway,
+            "--swirl-opacity": swirl.opacity,
+            "--rotate-degree": swirl.rotate,
+            fill: "currentColor",
+          } as React.CSSProperties}
+        >
+          {[0, 72, 144, 216, 288].map((angle) => (
+            <g key={angle} transform={`rotate(${angle} 50 50)`}>
+              <circle cx="50" cy="22" r="5.5" />
+              <path d="M 45,30 C 51,31 55,36 54,42 C 53,47 48,50 43,47 C 47,45 50,41 50,37 C 50,33 48,31 45,30 Z" />
+            </g>
+          ))}
+        </svg>
+      ))}
     </div>
   );
 }
@@ -138,6 +186,30 @@ export default function App() {
   const [pollQuestion, setPollQuestion] = useState("");
   const [pollOptions, setPollOptions] = useState(["", ""]);
   
+  // --- Post Edit States ---
+  const [editingPostId, setEditingPostId] = useState<string | null>(null);
+  const [editingContent, setEditingContent] = useState("");
+  const [editingCategory, setEditingCategory] = useState<Post["category"]>("aviso");
+  const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
+
+  // --- Collaborator Management (CRUD) States ---
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [editUserName, setEditUserName] = useState("");
+  const [editUserEmail, setEditUserEmail] = useState("");
+  const [editUserDepartment, setEditUserDepartment] = useState("");
+  const [editUserHireDate, setEditUserHireDate] = useState("");
+  const [editUserRole, setEditUserRole] = useState<UserRole>(UserRole.COLLABORATOR);
+  const [editUserAvatar, setEditUserAvatar] = useState("");
+
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
+
+  const [creationMode, setCreationMode] = useState<"invite" | "direct">("invite");
+  const [createUserName, setCreateUserName] = useState("");
+  const [createUserEmail, setCreateUserEmail] = useState("");
+  const [createUserDepartment, setCreateUserDepartment] = useState("");
+  const [createUserHireDate, setCreateUserHireDate] = useState(new Date().toISOString().split('T')[0]);
+  const [createUserRole, setCreateUserRole] = useState<UserRole>(UserRole.COLLABORATOR);
+  
   const [showBadgeSelector, setShowBadgeSelector] = useState(false);
   const [selectedBadge, setSelectedBadge] = useState<{name: string, icon: string} | null>(null);
   const [selectedRecipientId, setSelectedRecipientId] = useState("");
@@ -159,13 +231,20 @@ export default function App() {
   const [cameraPermissionError, setCameraPermissionError] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
 
   // --- Google Login & Choose account states ---
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
     const saved = localStorage.getItem("flow_is_logged_in");
-    return saved ? saved === "true" : true;
+    return saved === "true";
   });
   const [showGoogleChooser, setShowGoogleChooser] = useState(false);
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginCompanyId, setLoginCompanyId] = useState("company-1");
+  const [showPassword, setShowPassword] = useState(false);
+  const [loginError, setLoginError] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
 
   // --- Clima Organizacional states ---
   const [votedClimate, setVotedClimate] = useState<boolean>(() => {
@@ -270,6 +349,7 @@ export default function App() {
       navigator.mediaDevices
         .getUserMedia({ video: { facingMode: "user" } })
         .then(stream => {
+          cameraStreamRef.current = stream;
           if (videoRef.current) {
             videoRef.current.srcObject = stream;
             videoRef.current.play();
@@ -285,10 +365,23 @@ export default function App() {
     return () => stopCamera();
   }, [cameraActive, capturedPhoto]);
 
+  // Turn off camera if the user navigates away from the "ponto" tab
+  useEffect(() => {
+    if (currentTab !== "ponto") {
+      setCameraActive(false);
+      setCapturedPhoto(null);
+      stopCamera();
+    }
+  }, [currentTab]);
+
   const stopCamera = () => {
+    if (cameraStreamRef.current) {
+      cameraStreamRef.current.getTracks().forEach(track => {
+        track.stop();
+      });
+      cameraStreamRef.current = null;
+    }
     if (videoRef.current && videoRef.current.srcObject) {
-      const stream = videoRef.current.srcObject as MediaStream;
-      stream.getTracks().forEach(track => track.stop());
       videoRef.current.srcObject = null;
     }
   };
@@ -437,6 +530,7 @@ export default function App() {
       setPontoSuccess(true);
       setCapturedPhoto(null);
       setCameraActive(false);
+      stopCamera();
 
       // Hide success banner after 3 seconds
       setTimeout(() => {
@@ -571,6 +665,101 @@ export default function App() {
     );
   };
 
+  // --- Collaborator CRUD: Direct Create, Update and Delete ---
+  const handleCreateUserDirect = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!createUserName.trim() || !createUserEmail.trim() || !createUserDepartment.trim()) {
+      alert("Por favor, preencha todos os campos.");
+      return;
+    }
+
+    const emailLower = createUserEmail.trim().toLowerCase();
+    const exists = users.some(u => u.email.toLowerCase() === emailLower);
+    if (exists) {
+      alert("Este e-mail já está cadastrado.");
+      return;
+    }
+
+    const randomAvatar = [
+      "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+      "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150&auto=format&fit=crop&q=80",
+      "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80",
+      "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80",
+      "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80"
+    ][Math.floor(Math.random() * 5)];
+
+    const newUser: UserProfile = {
+      id: `user-${Date.now()}`,
+      email: emailLower,
+      role: createUserRole,
+      company_id: currentUser.company_id,
+      name: createUserName.trim(),
+      department: createUserDepartment.trim(),
+      hire_date: createUserHireDate || new Date().toISOString().split('T')[0],
+      avatar: randomAvatar,
+      points_balance: 15.0,
+      active_streak: 1
+    };
+
+    setUsers(prev => [...prev, newUser]);
+    setInviteSuccessMsg(`Colaborador "${createUserName}" cadastrado diretamente com sucesso!`);
+    
+    // reset form
+    setCreateUserName("");
+    setCreateUserEmail("");
+    setCreateUserDepartment("");
+    setCreateUserRole(UserRole.COLLABORATOR);
+  };
+
+  const handleUpdateUser = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUserId) return;
+    if (!editUserName.trim() || !editUserEmail.trim() || !editUserDepartment.trim()) {
+      alert("Por favor, preencha todos os campos.");
+      return;
+    }
+
+    const emailLower = editUserEmail.trim().toLowerCase();
+    const exists = users.some(u => u.id !== editingUserId && u.email.toLowerCase() === emailLower);
+    if (exists) {
+      alert("Este e-mail já está em uso por outro colaborador.");
+      return;
+    }
+
+    setUsers(prev =>
+      prev.map(u => {
+        if (u.id === editingUserId) {
+          const updated = {
+            ...u,
+            name: editUserName.trim(),
+            email: emailLower,
+            department: editUserDepartment.trim(),
+            hire_date: editUserHireDate,
+            role: editUserRole,
+            avatar: editUserAvatar || u.avatar
+          };
+          if (currentUser.id === editingUserId) {
+            setCurrentUser(updated);
+          }
+          return updated;
+        }
+        return u;
+      })
+    );
+
+    setEditingUserId(null);
+    setInviteSuccessMsg("Colaborador atualizado com sucesso!");
+  };
+
+  const handleDeleteUser = (targetUserId: string) => {
+    if (targetUserId === currentUser.id) {
+      alert("Você não pode excluir o seu próprio usuário logado!");
+      return;
+    }
+    setUsers(prev => prev.filter(u => u.id !== targetUserId));
+    setInviteSuccessMsg("Colaborador excluído com sucesso.");
+  };
+
   // --- Climate Organizacional Handler ---
   const handleClimateSubmit = (vibe: string, comment: string) => {
     const today = new Date().toDateString();
@@ -695,12 +884,21 @@ export default function App() {
       }
     }
 
+    const dynamicRole = currentUser.role === UserRole.SUPER_ADMIN
+      ? "Super Admin"
+      : currentUser.role === UserRole.HR_MANAGER
+      ? "Gestor de RH"
+      : currentUser.role === UserRole.SUPERVISOR
+      ? "Supervisor"
+      : "Colaborador";
+
     const newPost: Post = {
       id: `post-${Date.now()}`,
       user_id: currentUser.id,
       user_name: currentUser.name,
       user_avatar: currentUser.avatar,
-      user_role: currentUser.role === UserRole.HR_MANAGER ? "Gestor de RH" : "Colaborador",
+      user_role: dynamicRole,
+      user_department: currentUser.department,
       company_id: currentUser.company_id,
       content: newPostContent,
       category: newPostCategory,
@@ -719,6 +917,40 @@ export default function App() {
     setShowBadgeSelector(false);
     setSelectedBadge(null);
     setSelectedRecipientId("");
+  };
+
+  // --- Mural CRUD Actions: Edit and Delete ---
+  const handleEditPost = (postId: string, updatedContent: string, updatedCategory: Post["category"]) => {
+    setPosts(prev =>
+      prev.map(p => {
+        if (p.id === postId) {
+          return {
+            ...p,
+            content: updatedContent,
+            category: updatedCategory
+          };
+        }
+        return p;
+      })
+    );
+  };
+
+  const handleDeletePost = (postId: string) => {
+    setPosts(prev => prev.filter(p => p.id !== postId));
+  };
+
+  const canEditOrDeletePost = (post: Post) => {
+    // Administrador (SUPER_ADMIN or HR_MANAGER) has full CRUD
+    if (currentUser.role === UserRole.SUPER_ADMIN || currentUser.role === UserRole.HR_MANAGER) {
+      return true;
+    }
+    // Supervisor can edit and delete posts of their own department
+    if (currentUser.role === UserRole.SUPERVISOR) {
+      const authorDept = post.user_department || users.find(u => u.id === post.user_id)?.department;
+      return authorDept === currentUser.department;
+    }
+    // Collaborator has no edit/delete privileges
+    return false;
   };
 
   // --- Social Actions (Likes/Comments/Poll Votes) ---
@@ -868,60 +1100,257 @@ As políticas padrões da **${userCompany?.name}** de reembolso cobrem até **R$
   const companyInvitations = invitations.filter(i => i.company_id === activeCompanyId);
   const activeCompany = companies.find(c => c.id === activeCompanyId);
 
+  if (!isLoggedIn) {
+    return (
+      <div className="min-h-screen bg-slate-50 text-slate-800 font-sans flex items-center justify-center p-4 md:p-8 antialiased relative overflow-hidden">
+        
+        {/* Background Swirl Snowflakes animation */}
+        <FallingSwirlSnowflakes />
+
+        {/* Center Card */}
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: "easeOut" }}
+          className="w-full max-w-4xl bg-white rounded-2xl shadow-xl overflow-hidden relative z-10 grid grid-cols-1 md:grid-cols-12 border border-white/50"
+        >
+          {/* Left Column: Form and Logo */}
+          <div className="md:col-span-7 p-8 md:p-10 flex flex-col justify-center space-y-6">
+            <div className="flex items-center justify-between">
+              <FlowRhLogo size="text-2xl" textColor="text-[#0043FF]" iconSize="h-8" />
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-100 px-2 py-1 rounded border border-slate-200">
+                SaaS Portal
+              </span>
+            </div>
+
+            <div className="space-y-1">
+              <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Acesse sua Conta</h2>
+              <p className="text-xs text-slate-500 leading-normal">
+                Faça login para gerenciar sua jornada de trabalho, ver comunicados e acessar o assistente de IA.
+              </p>
+            </div>
+
+            {loginError && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-red-50 text-red-700 text-xs p-3.5 rounded-xl flex items-start gap-2 border border-red-200 shadow-sm"
+              >
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span className="font-medium leading-normal">{loginError}</span>
+              </motion.div>
+            )}
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                setLoginError("");
+                setLoginLoading(true);
+
+                setTimeout(() => {
+                  const targetUser = users.find(u => u.email.toLowerCase() === loginEmail.trim().toLowerCase());
+                  if (!targetUser) {
+                    setLoginError("E-mail corporativo não encontrado. Por favor, verifique ou utilize uma conta de demonstração rápida.");
+                    setLoginLoading(false);
+                    return;
+                  }
+
+                  if (targetUser.company_id !== loginCompanyId) {
+                    const expectedComp = companies.find(c => c.id === targetUser.company_id)?.name || "Outra empresa";
+                    const triedComp = companies.find(c => c.id === loginCompanyId)?.name || "Empresa selecionada";
+                    setLoginError(`Acesso Negado! O e-mail informado pertence à empresa "${expectedComp}", mas você tentou entrar na empresa "${triedComp}". O isolamento Multi-Tenant por Row Level Security (RLS) impede este login.`);
+                    setLoginLoading(false);
+                    return;
+                  }
+
+                  // If email exists and tenant matches, sign in!
+                  setCurrentUser(targetUser);
+                  setIsLoggedIn(true);
+                  localStorage.setItem("flow_is_logged_in", "true");
+                  localStorage.setItem("flow_current_user_id", targetUser.id);
+                  setLoginLoading(false);
+                }, 1000);
+              }}
+              className="space-y-4"
+            >
+              {/* Tenant Selector */}
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1 tracking-wider">
+                  Empresa / Organização (Tenant)
+                </label>
+                <div className="relative">
+                  <select
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-xs focus:border-[#0043FF] focus:outline-none bg-white font-medium pr-10"
+                    value={loginCompanyId}
+                    onChange={(e) => setLoginCompanyId(e.target.value)}
+                  >
+                    {companies.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.segment})
+                      </option>
+                    ))}
+                  </select>
+                  <Building className="w-4 h-4 text-slate-400 absolute right-3 top-3.5 pointer-events-none" />
+                </div>
+              </div>
+
+              {/* Email Input */}
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1 tracking-wider">
+                  E-mail Corporativo
+                </label>
+                <div className="relative">
+                  <input
+                    type="email"
+                    required
+                    placeholder="seu.nome@empresa.com"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-xs focus:border-[#0043FF] focus:outline-none pr-10"
+                    value={loginEmail}
+                    onChange={(e) => setLoginEmail(e.target.value)}
+                  />
+                  <span className="absolute right-3 top-3.5 text-slate-400 text-xs font-bold">@</span>
+                </div>
+              </div>
+
+              {/* Password Input */}
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="block text-[10px] font-bold uppercase text-slate-500 tracking-wider">
+                    Senha de Acesso
+                  </label>
+                  <span className="text-[9px] text-slate-400 font-medium">Qualquer senha é aceita para teste</span>
+                </div>
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    required
+                    placeholder="Sua senha secreta"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-xs focus:border-[#0043FF] focus:outline-none pr-10"
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-3.5 text-slate-400 hover:text-slate-600 transition"
+                  >
+                    <Lock className={`w-4 h-4 ${showPassword ? "text-[#0043FF]" : ""}`} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Security Banner */}
+              <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-3 flex items-start gap-2.5 text-[10px] text-blue-800 leading-normal">
+                <span className="text-base">🛡️</span>
+                <div>
+                  <span className="font-bold block">Autenticação com Isolamento RLS Ativado</span>
+                  <span className="text-blue-600/90">
+                    O sistema valida as sessões de forma estrita. Dados de outros tenants nunca são retornados pela API local.
+                  </span>
+                </div>
+              </div>
+
+              {/* Login Button */}
+              <button
+                type="submit"
+                disabled={loginLoading}
+                className="w-full bg-[#0043FF] hover:bg-blue-700 disabled:bg-blue-300 text-white font-bold py-3 rounded-xl text-xs transition duration-200 shadow-md shadow-blue-500/10 flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {loginLoading ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Autenticando...
+                  </>
+                ) : (
+                  <>
+                    <UserCheck className="w-4 h-4" />
+                    Entrar no Painel Flow RH
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
+
+          {/* Right Column: Demo Accounts Quick Sign-In */}
+          <div className="md:col-span-5 bg-slate-900 text-white p-8 md:p-10 flex flex-col justify-between border-l border-slate-800">
+            <div className="space-y-4">
+              <div>
+                <span className="text-[9px] font-bold text-[#14B8A6] bg-teal-950 border border-teal-800 px-2 py-0.5 rounded uppercase tracking-widest">
+                  Sandbox Técnico
+                </span>
+                <h3 className="text-lg font-bold text-slate-100 mt-2">Contas de Demonstração</h3>
+                <p className="text-xs text-slate-400 mt-0.5 leading-normal">
+                  Escolha um perfil de teste abaixo para validar os controles RBAC e o isolamento de dados de cada tenant.
+                </p>
+              </div>
+
+              <div className="space-y-2.5 max-h-[350px] overflow-y-auto pr-1 font-sans">
+                {users.map(u => {
+                  const comp = companies.find(c => c.id === u.company_id);
+                  return (
+                    <button
+                      key={u.id}
+                      onClick={() => {
+                        setLoginEmail(u.email);
+                        setLoginPassword("123456");
+                        setLoginCompanyId(u.company_id);
+                        setLoginError("");
+                        
+                        // Smooth auto-login to make testing seamless
+                        setLoginLoading(true);
+                        setTimeout(() => {
+                          setCurrentUser(u);
+                          setIsLoggedIn(true);
+                          localStorage.setItem("flow_is_logged_in", "true");
+                          localStorage.setItem("flow_current_user_id", u.id);
+                          setLoginLoading(false);
+                        }, 500);
+                      }}
+                      className="w-full text-left bg-slate-800/60 hover:bg-slate-800 border border-slate-700/50 hover:border-[#14B8A6] rounded-xl p-3 transition duration-200 flex items-center justify-between gap-3 group cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <img src={u.avatar} alt={u.name} className="w-8 h-8 rounded-full object-cover border border-slate-700 shrink-0" />
+                        <div className="min-w-0">
+                          <div className="text-xs font-bold text-slate-200 group-hover:text-white truncate">{u.name}</div>
+                          <div className="text-[10px] text-slate-400 truncate font-mono">{u.email}</div>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="text-[8px] font-bold text-slate-300 bg-slate-700 px-1.5 py-0.5 rounded block uppercase mb-1 truncate max-w-[80px]">
+                          {comp?.name.split(" ")[0]}
+                        </span>
+                        <span className={`text-[8px] font-bold uppercase ${
+                          u.role === UserRole.SUPER_ADMIN ? "text-orange-400" :
+                          u.role === UserRole.HR_MANAGER ? "text-blue-400" : "text-slate-400"
+                        }`}>
+                          {u.role === UserRole.SUPER_ADMIN ? "S. Admin" :
+                           u.role === UserRole.HR_MANAGER ? "Gestor" : "Colab"}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="pt-6 border-t border-slate-800 text-[10px] text-slate-500 space-y-1">
+              <p className="flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                Row Level Security (RLS) habilitada
+              </p>
+              <p>Autenticação simulada com persistência local.</p>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans flex flex-col antialiased relative overflow-hidden">
       
-      {/* Background Watermark Mini-Icons (Flow RH swirl) scattered elegantly */}
-      <div className="absolute inset-0 pointer-events-none select-none overflow-hidden z-0">
-        <svg
-          viewBox="0 0 100 100"
-          className="absolute w-96 h-96 -bottom-20 -right-20 text-[#0043FF] opacity-[0.035] rotate-[15deg] animate-[spin_120s_linear_infinite]"
-          fill="currentColor"
-        >
-          {[0, 72, 144, 216, 288].map((angle) => (
-            <g key={angle} transform={`rotate(${angle} 50 50)`}>
-              <circle cx="50" cy="22" r="5.5" />
-              <path d="M 45,30 C 51,31 55,36 54,42 C 53,47 48,50 43,47 C 47,45 50,41 50,37 C 50,33 48,31 45,30 Z" />
-            </g>
-          ))}
-        </svg>
-        <svg
-          viewBox="0 0 100 100"
-          className="absolute w-64 h-64 top-40 -left-16 text-[#0043FF] opacity-[0.025] -rotate-[12deg] animate-[spin_90s_linear_infinite]"
-          fill="currentColor"
-        >
-          {[0, 72, 144, 216, 288].map((angle) => (
-            <g key={angle} transform={`rotate(${angle} 50 50)`}>
-              <circle cx="50" cy="22" r="5.5" />
-              <path d="M 45,30 C 51,31 55,36 54,42 C 53,47 48,50 43,47 C 47,45 50,41 50,37 C 50,33 48,31 45,30 Z" />
-            </g>
-          ))}
-        </svg>
-        <svg
-          viewBox="0 0 100 100"
-          className="absolute w-48 h-48 top-[60%] left-[25%] text-[#0043FF] opacity-[0.015] rotate-[45deg] animate-[spin_180s_linear_infinite]"
-          fill="currentColor"
-        >
-          {[0, 72, 144, 216, 288].map((angle) => (
-            <g key={angle} transform={`rotate(${angle} 50 50)`}>
-              <circle cx="50" cy="22" r="5.5" />
-              <path d="M 45,30 C 51,31 55,36 54,42 C 53,47 48,50 43,47 C 47,45 50,41 50,37 C 50,33 48,31 45,30 Z" />
-            </g>
-          ))}
-        </svg>
-        <svg
-          viewBox="0 0 100 100"
-          className="absolute w-56 h-56 top-[25%] right-[15%] text-[#0043FF] opacity-[0.02] rotate-[-30deg] animate-[spin_150s_linear_infinite]"
-          fill="currentColor"
-        >
-          {[0, 72, 144, 216, 288].map((angle) => (
-            <g key={angle} transform={`rotate(${angle} 50 50)`}>
-              <circle cx="50" cy="22" r="5.5" />
-              <path d="M 45,30 C 51,31 55,36 54,42 C 53,47 48,50 43,47 C 47,45 50,41 50,37 C 50,33 48,31 45,30 Z" />
-            </g>
-          ))}
-        </svg>
-      </div>
+      {/* Background Swirl Snowflakes animation */}
+      <FallingSwirlSnowflakes />
 
       {/* Simulation Banner & Role Switcher */}
       <div className="bg-amber-500 text-white px-4 py-2 text-xs font-semibold flex items-center justify-between gap-4 shadow-inner relative z-10">
@@ -939,11 +1368,20 @@ As políticas padrões da **${userCompany?.name}** de reembolso cobrem até **R$
               if (found) setCurrentUser(found);
             }}
           >
-            {users.map(u => (
-              <option key={u.id} value={u.id} className="text-slate-800">
-                {u.name} ({u.role === UserRole.HR_MANAGER ? "Gestor RH" : "Colaborador"}) - {companies.find(c => c.id === u.company_id)?.name}
-              </option>
-            ))}
+            {users.map(u => {
+              const roleLabel = u.role === UserRole.SUPER_ADMIN
+                ? "Super Admin"
+                : u.role === UserRole.HR_MANAGER
+                ? "Gestor RH"
+                : u.role === UserRole.SUPERVISOR
+                ? "Supervisor"
+                : "Colaborador";
+              return (
+                <option key={u.id} value={u.id} className="text-slate-800">
+                  {u.name} ({roleLabel} - {u.department}) - {companies.find(c => c.id === u.company_id)?.name}
+                </option>
+              );
+            })}
           </select>
           <button
             onClick={resetDatabase}
@@ -1019,118 +1457,118 @@ As políticas padrões da **${userCompany?.name}** de reembolso cobrem até **R$
       <div className="flex flex-1">
         
         {/* --- LEFT SIDEBAR (Thin, Colorful blocks like GOintegro) --- */}
-        <aside className="w-20 bg-slate-950 flex flex-col items-center py-6 gap-6 shadow-xl border-r border-slate-900 select-none">
+        <aside className="w-22 flex flex-col items-center py-6 gap-5 select-none relative z-20">
           {/* Dashboard Icon */}
           <button
             onClick={() => { setIsOnboarding(false); setCurrentTab("dashboard"); }}
-            className={`flex flex-col items-center group relative w-12 h-12 rounded-xl transition-all duration-300 ${
+            className={`flex flex-col items-center group relative w-14 h-14 rounded-2xl transition-all duration-300 cursor-pointer ${
               currentTab === "dashboard" && !isOnboarding
-                ? "bg-[#6B7280] text-white scale-105 shadow-md shadow-gray-500/20"
-                : "bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800"
+                ? "bg-slate-500/90 text-white scale-105 shadow-lg shadow-slate-500/20 border border-slate-400/30"
+                : "bg-white/5 text-slate-400 hover:text-white hover:bg-white/10 border border-white/5"
             }`}
             title="Início / Widgets"
           >
-            <div className="flex-1 flex items-center justify-center">
-              <LayoutDashboard className="w-5 h-5" />
+            <div className="flex-1 flex items-center justify-center pt-1.5">
+              <LayoutDashboard className={`w-5 h-5 transition-transform duration-300 group-hover:scale-110 ${currentTab === "dashboard" && !isOnboarding ? "text-white" : "text-slate-400"}`} />
             </div>
-            <span className="text-[9px] pb-1 font-semibold">Início</span>
+            <span className="text-[9px] pb-1.5 font-bold tracking-tight">Início</span>
             {currentTab === "dashboard" && !isOnboarding && (
-              <span className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-white rounded-l" />
+              <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-7 bg-slate-400 rounded-r" />
             )}
           </button>
 
           {/* Mural Icon */}
           <button
             onClick={() => { setIsOnboarding(false); setCurrentTab("mural"); }}
-            className={`flex flex-col items-center group relative w-12 h-12 rounded-xl transition-all duration-300 ${
+            className={`flex flex-col items-center group relative w-14 h-14 rounded-2xl transition-all duration-300 cursor-pointer ${
               currentTab === "mural" && !isOnboarding
-                ? "bg-[#14B8A6] text-white scale-105 shadow-md shadow-teal-500/20"
-                : "bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800"
+                ? "bg-[#14B8A6] text-white scale-105 shadow-lg shadow-teal-500/20 border border-teal-400/30"
+                : "bg-white/5 text-slate-400 hover:text-white hover:bg-white/10 border border-white/5"
             }`}
             title="Mural de Avisos"
           >
-            <div className="flex-1 flex items-center justify-center">
-              <MessageSquare className="w-5 h-5" />
+            <div className="flex-1 flex items-center justify-center pt-1.5">
+              <MessageSquare className={`w-5 h-5 transition-transform duration-300 group-hover:scale-110 ${currentTab === "mural" && !isOnboarding ? "text-white" : "text-[#14B8A6]"}`} />
             </div>
-            <span className="text-[9px] pb-1 font-semibold">Mural</span>
+            <span className="text-[9px] pb-1.5 font-bold tracking-tight">Mural</span>
             {currentTab === "mural" && !isOnboarding && (
-              <span className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-white rounded-l" />
+              <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-7 bg-[#14B8A6] rounded-r" />
             )}
           </button>
 
           {/* Ponto Icon */}
           <button
             onClick={() => { setIsOnboarding(false); setCurrentTab("ponto"); }}
-            className={`flex flex-col items-center group relative w-12 h-12 rounded-xl transition-all duration-300 ${
+            className={`flex flex-col items-center group relative w-14 h-14 rounded-2xl transition-all duration-300 cursor-pointer ${
               currentTab === "ponto" && !isOnboarding
-                ? "bg-[#8B5CF6] text-white scale-105 shadow-md shadow-purple-500/20"
-                : "bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800"
+                ? "bg-[#8B5CF6] text-white scale-105 shadow-lg shadow-purple-500/20 border border-purple-400/30"
+                : "bg-white/5 text-slate-400 hover:text-white hover:bg-white/10 border border-white/5"
             }`}
             title="Registrar Ponto"
           >
-            <div className="flex-1 flex items-center justify-center">
-              <Clock className="w-5 h-5" />
+            <div className="flex-1 flex items-center justify-center pt-1.5">
+              <Clock className={`w-5 h-5 transition-transform duration-300 group-hover:scale-110 ${currentTab === "ponto" && !isOnboarding ? "text-white" : "text-[#A78BFA]"}`} />
             </div>
-            <span className="text-[9px] pb-1 font-semibold">Ponto</span>
+            <span className="text-[9px] pb-1.5 font-bold tracking-tight">Ponto</span>
             {currentTab === "ponto" && !isOnboarding && (
-              <span className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-white rounded-l" />
+              <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-7 bg-[#8B5CF6] rounded-r" />
             )}
           </button>
 
           {/* Gestão / Empresa Icon */}
           <button
             onClick={() => { setIsOnboarding(false); setCurrentTab("empresa"); }}
-            className={`flex flex-col items-center group relative w-12 h-12 rounded-xl transition-all duration-300 ${
+            className={`flex flex-col items-center group relative w-14 h-14 rounded-2xl transition-all duration-300 cursor-pointer ${
               currentTab === "empresa" && !isOnboarding
-                ? "bg-[#0043FF] text-white scale-105 shadow-md shadow-blue-500/20"
-                : "bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800"
+                ? "bg-[#0043FF] text-white scale-105 shadow-lg shadow-blue-500/20 border border-blue-400/30"
+                : "bg-white/5 text-slate-400 hover:text-white hover:bg-white/10 border border-white/5"
             }`}
             title="Sua Empresa"
           >
-            <div className="flex-1 flex items-center justify-center">
-              <Users className="w-5 h-5" />
+            <div className="flex-1 flex items-center justify-center pt-1.5">
+              <Users className={`w-5 h-5 transition-transform duration-300 group-hover:scale-110 ${currentTab === "empresa" && !isOnboarding ? "text-white" : "text-[#3B82F6]"}`} />
             </div>
-            <span className="text-[9px] pb-1 font-semibold">Gestão</span>
+            <span className="text-[9px] pb-1.5 font-bold tracking-tight">Gestão</span>
             {currentTab === "empresa" && !isOnboarding && (
-              <span className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-white rounded-l" />
+              <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-7 bg-[#0043FF] rounded-r" />
             )}
           </button>
 
           {/* Talentos Icon */}
           <button
             onClick={() => { setIsOnboarding(false); setCurrentTab("talentos"); }}
-            className={`flex flex-col items-center group relative w-12 h-12 rounded-xl transition-all duration-300 ${
+            className={`flex flex-col items-center group relative w-14 h-14 rounded-2xl transition-all duration-300 cursor-pointer ${
               currentTab === "talentos" && !isOnboarding
-                ? "bg-[#10B981] text-white scale-105 shadow-md shadow-emerald-500/20"
-                : "bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800"
+                ? "bg-[#7C3AED] text-white scale-105 shadow-lg shadow-purple-500/20 border border-purple-400/30"
+                : "bg-white/5 text-slate-400 hover:text-white hover:bg-white/10 border border-white/5"
             }`}
             title="Gestão de Talentos (Triagem IA)"
           >
-            <div className="flex-1 flex items-center justify-center">
-              <Briefcase className="w-5 h-5 text-emerald-400 group-hover:text-white" />
+            <div className="flex-1 flex items-center justify-center pt-1.5">
+              <Briefcase className={`w-5 h-5 transition-transform duration-300 group-hover:scale-110 ${currentTab === "talentos" && !isOnboarding ? "text-white" : "text-[#C084FC]"}`} />
             </div>
-            <span className="text-[9px] pb-1 font-semibold">Talentos</span>
+            <span className="text-[9px] pb-1.5 font-bold tracking-tight">Talentos</span>
             {currentTab === "talentos" && !isOnboarding && (
-              <span className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-white rounded-l" />
+              <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-7 bg-[#7C3AED] rounded-r" />
             )}
           </button>
 
           {/* Flow AI Icon */}
           <button
             onClick={() => { setIsOnboarding(false); setCurrentTab("flow_ai"); }}
-            className={`flex flex-col items-center group relative w-12 h-12 rounded-xl transition-all duration-300 ${
+            className={`flex flex-col items-center group relative w-14 h-14 rounded-2xl transition-all duration-300 cursor-pointer ${
               currentTab === "flow_ai" && !isOnboarding
-                ? "bg-cyan-500 text-white scale-105 shadow-md shadow-cyan-500/20"
-                : "bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800"
+                ? "bg-violet-600 text-white scale-105 shadow-lg shadow-violet-500/20 border border-violet-400/30"
+                : "bg-white/5 text-slate-400 hover:text-white hover:bg-white/10 border border-white/5"
             }`}
             title="Assistente Flow AI"
           >
-            <div className="flex-1 flex items-center justify-center">
-              <Bot className="w-5 h-5 text-cyan-400 group-hover:text-white" />
+            <div className="flex-1 flex items-center justify-center pt-1.5">
+              <Bot className={`w-5 h-5 transition-transform duration-300 group-hover:scale-110 ${currentTab === "flow_ai" && !isOnboarding ? "text-white" : "text-[#D8B4FE]"}`} />
             </div>
-            <span className="text-[9px] pb-1 font-semibold">Flow AI</span>
+            <span className="text-[9px] pb-1.5 font-bold tracking-tight">Flow AI</span>
             {currentTab === "flow_ai" && !isOnboarding && (
-              <span className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-white rounded-l" />
+              <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-7 bg-violet-600 rounded-r" />
             )}
           </button>
 
@@ -1138,41 +1576,41 @@ As políticas padrões da **${userCompany?.name}** de reembolso cobrem até **R$
           {(currentUser.role === UserRole.SUPER_ADMIN || currentUser.email === "desenvolvimentoflowrh@gmail.com") && (
             <button
               onClick={() => { setIsOnboarding(false); setCurrentTab("super_admin"); }}
-              className={`flex flex-col items-center group relative w-12 h-12 rounded-xl transition-all duration-300 ${
+              className={`flex flex-col items-center group relative w-14 h-14 rounded-2xl transition-all duration-300 cursor-pointer ${
                 currentTab === "super_admin" && !isOnboarding
-                  ? "bg-[#EA580C] text-white scale-105 shadow-md shadow-orange-500/20"
-                  : "bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800"
+                  ? "bg-[#EA580C] text-white scale-105 shadow-lg shadow-orange-500/20 border border-orange-400/30"
+                  : "bg-white/5 text-slate-400 hover:text-white hover:bg-white/10 border border-white/5"
               }`}
               title="Área do Super Admin"
             >
-              <div className="flex-1 flex items-center justify-center">
-                <Lock className="w-5 h-5 text-orange-400 group-hover:text-white" />
+              <div className="flex-1 flex items-center justify-center pt-1.5">
+                <Lock className={`w-5 h-5 transition-transform duration-300 group-hover:scale-110 ${currentTab === "super_admin" && !isOnboarding ? "text-white" : "text-orange-400"}`} />
               </div>
-              <span className="text-[9px] pb-1 font-semibold">S. Admin</span>
+              <span className="text-[9px] pb-1.5 font-bold tracking-tight">S. Admin</span>
               {currentTab === "super_admin" && !isOnboarding && (
-                <span className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-white rounded-l" />
+                <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-7 bg-[#EA580C] rounded-r" />
               )}
             </button>
           )}
 
-          <hr className="w-8 border-slate-800" />
+          <hr className="w-10 border-slate-800/60 my-1" />
 
           {/* Simulator & Setup Icon */}
           <button
             onClick={() => { setIsOnboarding(false); setCurrentTab("admin"); }}
-            className={`flex flex-col items-center group relative w-12 h-12 rounded-xl transition-all duration-300 ${
+            className={`flex flex-col items-center group relative w-14 h-14 rounded-2xl transition-all duration-300 cursor-pointer ${
               currentTab === "admin" && !isOnboarding
-                ? "bg-[#EF4444] text-white scale-105 shadow-md shadow-red-500/20"
-                : "bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800"
+                ? "bg-[#EF4444] text-white scale-105 shadow-lg shadow-red-500/20 border border-red-400/30"
+                : "bg-white/5 text-slate-400 hover:text-white hover:bg-white/10 border border-white/5"
             }`}
             title="Simulador de Onboarding & Configurações"
           >
-            <div className="flex-1 flex items-center justify-center">
-              <Settings className="w-5 h-5" />
+            <div className="flex-1 flex items-center justify-center pt-1.5">
+              <Settings className={`w-5 h-5 transition-transform duration-300 group-hover:scale-110 ${currentTab === "admin" && !isOnboarding ? "text-white" : "text-red-400"}`} />
             </div>
-            <span className="text-[9px] pb-1 font-semibold">Config</span>
+            <span className="text-[9px] pb-1.5 font-bold tracking-tight">Config</span>
             {currentTab === "admin" && !isOnboarding && (
-              <span className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-white rounded-l" />
+              <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-7 bg-[#EF4444] rounded-r" />
             )}
           </button>
         </aside>
@@ -1356,7 +1794,13 @@ As políticas padrões da **${userCompany?.name}** de reembolso cobrem até **R$
                     <p className="text-xs text-slate-500 font-medium">{currentUser.department}</p>
                     
                     <div className="inline-block mt-2 bg-blue-50 text-[#0043FF] text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                      {currentUser.role === UserRole.HR_MANAGER ? "Gestor de RH" : currentUser.role === UserRole.SUPER_ADMIN ? "Super Admin" : "Colaborador"}
+                      {currentUser.role === UserRole.HR_MANAGER
+                        ? "Gestor de RH"
+                        : currentUser.role === UserRole.SUPER_ADMIN
+                        ? "Super Admin"
+                        : currentUser.role === UserRole.SUPERVISOR
+                        ? "Supervisor"
+                        : "Colaborador"}
                     </div>
 
                     <div className="grid grid-cols-2 gap-4 border-t border-slate-100 mt-6 pt-4">
@@ -1963,17 +2407,116 @@ As políticas padrões da **${userCompany?.name}** de reembolso cobrem até **R$
                               </div>
                             </div>
 
-                            <span className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded ${
-                              p.category === "aviso" ? "bg-amber-50 text-amber-600" :
-                              p.category === "comemoracao" ? "bg-pink-50 text-pink-600" :
-                              p.category === "treinamento" ? "bg-indigo-50 text-indigo-600" : "bg-slate-100 text-slate-500"
-                            }`}>
-                              {p.category}
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded ${
+                                p.category === "aviso" ? "bg-amber-50 text-amber-600" :
+                                p.category === "comemoracao" ? "bg-pink-50 text-pink-600" :
+                                p.category === "treinamento" ? "bg-indigo-50 text-indigo-600" : "bg-slate-100 text-slate-500"
+                              }`}>
+                                {p.category}
+                              </span>
+                              
+                              {canEditOrDeletePost(p) && (
+                                <div className="flex items-center gap-1.5">
+                                  {deletingPostId === p.id ? (
+                                    <div className="flex items-center gap-1.5 bg-red-50 border border-red-100 px-1.5 py-0.5 rounded-md animate-fade-in">
+                                      <span className="text-[9px] font-bold text-red-600 uppercase tracking-wider">Confirmar?</span>
+                                      <button
+                                        onClick={() => {
+                                          handleDeletePost(p.id);
+                                          setDeletingPostId(null);
+                                        }}
+                                        className="text-[9px] bg-red-600 hover:bg-red-700 text-white font-bold px-1.5 py-0.5 rounded transition"
+                                        title="Confirmar Exclusão"
+                                      >
+                                        Sim
+                                      </button>
+                                      <button
+                                        onClick={() => setDeletingPostId(null)}
+                                        className="text-[9px] bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold px-1.5 py-0.5 rounded transition"
+                                        title="Cancelar"
+                                      >
+                                        Não
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-1 bg-slate-50 border border-slate-100 px-1 py-0.5 rounded-md">
+                                      <button
+                                        onClick={() => {
+                                          setEditingPostId(p.id);
+                                          setEditingContent(p.content);
+                                          setEditingCategory(p.category);
+                                          setDeletingPostId(null);
+                                        }}
+                                        className="p-1 hover:bg-slate-200 rounded text-slate-500 hover:text-[#0043FF] transition"
+                                        title="Editar Publicação"
+                                      >
+                                        <Edit2 className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          setDeletingPostId(p.id);
+                                        }}
+                                        className="p-1 hover:bg-slate-200 rounded text-slate-500 hover:text-red-500 transition"
+                                        title="Excluir Publicação"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
                           </div>
 
-                          {/* Post Content */}
-                          <p className="text-sm text-slate-700 whitespace-pre-line leading-relaxed">{p.content}</p>
+                          {/* Post Content or Edit Form */}
+                          {editingPostId === p.id ? (
+                            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
+                                Editar Publicação
+                              </div>
+                              <textarea
+                                className="w-full text-sm text-slate-800 bg-white border border-slate-200 rounded-lg p-3 focus:outline-none focus:border-[#0043FF] min-h-[100px]"
+                                value={editingContent}
+                                onChange={(e) => setEditingContent(e.target.value)}
+                              />
+                              <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                                <div className="flex items-center gap-2">
+                                  <label className="text-xs text-slate-500 font-medium">Categoria:</label>
+                                  <select
+                                    className="bg-white border border-slate-200 rounded px-2.5 py-1 text-xs text-slate-700 outline-none cursor-pointer focus:border-[#0043FF]"
+                                    value={editingCategory}
+                                    onChange={(e) => setEditingCategory(e.target.value as Post["category"])}
+                                  >
+                                    <option value="aviso">📢 Aviso</option>
+                                    <option value="operacao">📊 Operação</option>
+                                    <option value="comemoracao">🎉 Comemoração</option>
+                                    <option value="treinamento">🎓 Treinamento</option>
+                                    <option value="destaque">⭐ Destaque</option>
+                                  </select>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => setEditingPostId(null)}
+                                    className="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-500 text-xs font-semibold transition"
+                                  >
+                                    Cancelar
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      handleEditPost(p.id, editingContent, editingCategory);
+                                      setEditingPostId(null);
+                                    }}
+                                    className="bg-[#0043FF] hover:bg-blue-700 text-white font-semibold px-3 py-1.5 rounded-lg text-xs transition shadow-sm"
+                                  >
+                                    Salvar Alterações
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-sm text-slate-700 whitespace-pre-line leading-relaxed">{p.content}</p>
+                          )}
 
                           {/* Render Badge Recognition Award */}
                           {p.badge_award && (
@@ -2351,31 +2894,82 @@ As políticas padrões da **${userCompany?.name}** de reembolso cobrem até **R$
                             <div className="flex items-center gap-3">
                               <img src={u.avatar} alt={u.name} className="w-11 h-11 rounded-full object-cover border border-slate-200" />
                               <div>
-                                <div className="text-sm font-bold text-slate-800">{u.name}</div>
+                                <div className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                                  {u.name}
+                                  <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                                    u.role === UserRole.SUPER_ADMIN ? "bg-purple-100 text-purple-700" :
+                                    u.role === UserRole.HR_MANAGER ? "bg-blue-100 text-[#0043FF]" :
+                                    u.role === UserRole.SUPERVISOR ? "bg-amber-100 text-amber-700" :
+                                    "bg-slate-100 text-slate-600"
+                                  }`}>
+                                    {u.role === UserRole.SUPER_ADMIN ? "Super Admin" :
+                                     u.role === UserRole.HR_MANAGER ? "RH" :
+                                     u.role === UserRole.SUPERVISOR ? "Supervisor" :
+                                     "Colaborador"}
+                                  </span>
+                                </div>
                                 <div className="text-xs text-slate-500">{u.email}</div>
                                 <div className="text-[10px] text-slate-400 font-medium mt-0.5">Admitido em: {new Date(u.hire_date).toLocaleDateString("pt-BR")} • Setor: {u.department}</div>
                               </div>
                             </div>
 
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2.5">
                               {/* Display Badge count */}
                               <div className="flex items-center gap-1 bg-amber-50 text-amber-700 font-bold text-[10px] px-2 py-1 rounded-lg mr-2">
                                 <Award className="w-3.5 h-3.5 text-amber-600" /> {posts.filter(p=>p.badge_award?.recipient_id === u.id).length} Badge(s)
                               </div>
 
-                              {/* Promover/Demover control inside the tenant */}
-                              {u.role !== UserRole.SUPER_ADMIN && (
-                                <button
-                                  disabled={currentUser.role !== UserRole.HR_MANAGER && currentUser.role !== UserRole.SUPER_ADMIN}
-                                  onClick={() => handleToggleUserRole(u.id, u.role)}
-                                  className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition ${
-                                    u.role === UserRole.HR_MANAGER
-                                      ? "bg-blue-50 border-blue-200 text-[#0043FF] hover:bg-blue-100/50"
-                                      : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                                  } disabled:opacity-50 disabled:cursor-not-allowed`}
-                                >
-                                  {u.role === UserRole.HR_MANAGER ? "Promovido a RH" : "Colaborador Comum"}
-                                </button>
+                              {deletingUserId === u.id ? (
+                                <div className="flex items-center gap-1.5 bg-red-50 border border-red-100 px-2 py-1 rounded-lg text-xs animate-fade-in">
+                                  <span className="text-[10px] font-bold text-red-600 uppercase">Excluir?</span>
+                                  <button
+                                    onClick={() => {
+                                      handleDeleteUser(u.id);
+                                      setDeletingUserId(null);
+                                    }}
+                                    className="bg-red-600 hover:bg-red-700 text-white font-bold px-2 py-0.5 rounded text-[10px] transition"
+                                  >
+                                    Sim
+                                  </button>
+                                  <button
+                                    onClick={() => setDeletingUserId(null)}
+                                    className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold px-2 py-0.5 rounded text-[10px] transition"
+                                  >
+                                    Não
+                                  </button>
+                                </div>
+                              ) : (
+                                (currentUser.role === UserRole.HR_MANAGER || currentUser.role === UserRole.SUPER_ADMIN) && (
+                                  <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-100 px-1.5 py-1 rounded-lg">
+                                    <button
+                                      onClick={() => {
+                                        setEditingUserId(u.id);
+                                        setEditUserName(u.name);
+                                        setEditUserEmail(u.email);
+                                        setEditUserDepartment(u.department);
+                                        setEditUserHireDate(u.hire_date.split('T')[0]);
+                                        setEditUserRole(u.role);
+                                        setEditUserAvatar(u.avatar);
+                                        setDeletingUserId(null);
+                                      }}
+                                      className="p-1 hover:bg-slate-200 rounded text-slate-500 hover:text-[#0043FF] transition"
+                                      title="Editar Colaborador"
+                                    >
+                                      <Edit2 className="w-3.5 h-3.5" />
+                                    </button>
+                                    {u.id !== currentUser.id && (
+                                      <button
+                                        onClick={() => {
+                                          setDeletingUserId(u.id);
+                                        }}
+                                        className="p-1 hover:bg-slate-200 rounded text-slate-500 hover:text-red-500 transition"
+                                        title="Excluir Colaborador"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                  </div>
+                                )
                               )}
                             </div>
                           </div>
@@ -2386,7 +2980,7 @@ As políticas padrões da **${userCompany?.name}** de reembolso cobrem até **R$
                     {/* Pending invitations logs */}
                     <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
                       <div className="px-6 py-4 bg-slate-50 border-b border-slate-100">
-                        <h3 className="font-bold text-sm text-slate-700">Convites Enviados</h3>
+                        <h3 className="font-bold text-sm text-slate-700">Convites Enviados (Acesso via Link)</h3>
                       </div>
                       <div className="divide-y divide-slate-100 text-xs">
                         {companyInvitations.map(inv => (
@@ -2409,9 +3003,9 @@ As políticas padrões da **${userCompany?.name}** de reembolso cobrem até **R$
                                     setOnboardEmail(inv.email);
                                     setIsOnboarding(true);
                                   }}
-                                  className="text-[10px] font-bold bg-teal-500 hover:bg-teal-600 text-white px-2 py-1 rounded"
+                                  className="text-[10px] font-bold bg-teal-500 hover:bg-teal-600 text-white px-2.5 py-1 rounded transition"
                                 >
-                                  Simular Cadastro Link
+                                  Simular Onboarding
                                 </button>
                               )}
                             </div>
@@ -2424,65 +3018,335 @@ As políticas padrões da **${userCompany?.name}** de reembolso cobrem até **R$
                     </div>
                   </div>
 
-                  {/* Form to invite members (Col 4) */}
+                  {/* Form block with Tabs (Col 4) */}
                   <div className="lg:col-span-4 space-y-6">
                     <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-                      <h3 className="font-bold text-slate-800 text-sm mb-3">Convidar Novo Integrante</h3>
-                      <p className="text-xs text-slate-500 mb-4 leading-normal">
-                        O convite enviará o link estruturado com os dados corporativos da empresa para preenchimento somente leitura.
-                      </p>
+                      {/* Form Tabs */}
+                      <div className="flex border-b border-slate-100 mb-4">
+                        <button
+                          type="button"
+                          onClick={() => setCreationMode("invite")}
+                          className={`flex-1 pb-2.5 text-xs font-bold transition text-center ${
+                            creationMode === "invite"
+                              ? "text-[#0043FF] border-b-2 border-[#0043FF]"
+                              : "text-slate-400 hover:text-slate-600"
+                          }`}
+                        >
+                          Convidar via Link
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCreationMode("direct")}
+                          className={`flex-1 pb-2.5 text-xs font-bold transition text-center ${
+                            creationMode === "direct"
+                              ? "text-[#10B981] border-b-2 border-[#10B981]"
+                              : "text-slate-400 hover:text-slate-600"
+                          }`}
+                        >
+                          Acesso Completo
+                        </button>
+                      </div>
 
                       {inviteSuccessMsg && (
-                        <div className="bg-teal-50 text-teal-800 text-xs p-3 rounded-lg border border-teal-100 mb-4 font-medium">
-                          {inviteSuccessMsg}
+                        <div className="bg-teal-50 text-teal-800 text-xs p-3 rounded-lg border border-teal-100 mb-4 font-medium flex items-center justify-between">
+                          <span>{inviteSuccessMsg}</span>
+                          <button onClick={() => setInviteSuccessMsg("")} className="text-teal-600 hover:text-teal-800">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       )}
 
-                      <form onSubmit={handleSendInvite} className="space-y-4">
-                        <div>
-                          <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">E-mail do Colaborador</label>
-                          <input
-                            type="email"
-                            required
-                            placeholder="colaborador@empresa.com"
-                            className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:border-[#0043FF] focus:outline-none"
-                            value={inviteEmail}
-                            onChange={(e) => setInviteEmail(e.target.value)}
-                            disabled={currentUser.role !== UserRole.HR_MANAGER && currentUser.role !== UserRole.SUPER_ADMIN}
-                          />
-                        </div>
+                      {creationMode === "invite" ? (
+                        <div className="space-y-4">
+                          <p className="text-xs text-slate-500 leading-normal mb-1">
+                            O convite enviará o link estruturado com os dados corporativos para preenchimento de onboarding autônomo.
+                          </p>
 
-                        <div>
-                          <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Perfil de Acesso (RBAC)</label>
-                          <select
-                            className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 bg-white"
-                            value={inviteRole}
-                            onChange={(e) => setInviteRole(e.target.value as UserRole)}
-                            disabled={currentUser.role !== UserRole.HR_MANAGER && currentUser.role !== UserRole.SUPER_ADMIN}
-                          >
-                            <option value={UserRole.COLLABORATOR}>Colaborador Operacional</option>
-                            <option value={UserRole.HR_MANAGER}>Gestor de RH</option>
-                          </select>
-                        </div>
+                          <form onSubmit={handleSendInvite} className="space-y-4">
+                            <div>
+                              <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">E-mail do Colaborador</label>
+                              <input
+                                type="email"
+                                required
+                                placeholder="colaborador@empresa.com"
+                                className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:border-[#0043FF] focus:outline-none text-slate-800"
+                                value={inviteEmail}
+                                onChange={(e) => setInviteEmail(e.target.value)}
+                                disabled={currentUser.role !== UserRole.HR_MANAGER && currentUser.role !== UserRole.SUPER_ADMIN}
+                              />
+                            </div>
 
-                        <button
-                          type="submit"
-                          disabled={currentUser.role !== UserRole.HR_MANAGER && currentUser.role !== UserRole.SUPER_ADMIN}
-                          className="w-full bg-[#0043FF] hover:bg-blue-700 disabled:bg-slate-300 text-white font-semibold py-2 rounded-lg text-xs transition shadow-sm"
-                        >
-                          Gerar Convite Integrado
-                        </button>
-                      </form>
+                            <div>
+                              <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Perfil de Acesso (RBAC)</label>
+                              <select
+                                className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-800"
+                                value={inviteRole}
+                                onChange={(e) => setInviteRole(e.target.value as UserRole)}
+                                disabled={currentUser.role !== UserRole.HR_MANAGER && currentUser.role !== UserRole.SUPER_ADMIN}
+                              >
+                                <option value={UserRole.COLLABORATOR}>Colaborador</option>
+                                <option value={UserRole.SUPERVISOR}>Supervisor</option>
+                                <option value={UserRole.HR_MANAGER}>Gestor de RH</option>
+                              </select>
+                            </div>
+
+                            <button
+                              type="submit"
+                              disabled={currentUser.role !== UserRole.HR_MANAGER && currentUser.role !== UserRole.SUPER_ADMIN}
+                              className="w-full bg-[#0043FF] hover:bg-blue-700 disabled:bg-slate-300 text-white font-semibold py-2 rounded-lg text-xs transition shadow-sm"
+                            >
+                              Gerar Convite Integrado
+                            </button>
+                          </form>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          <p className="text-xs text-slate-500 leading-normal mb-1">
+                            Adicione o colaborador diretamente na base corporativa. O acesso é criado instantaneamente para login imediato.
+                          </p>
+
+                          <form onSubmit={handleCreateUserDirect} className="space-y-3">
+                            <div>
+                              <label className="block text-[10px] font-bold uppercase text-slate-500 mb-0.5">Nome Completo</label>
+                              <input
+                                type="text"
+                                required
+                                placeholder="Ex: Lucas Henrique"
+                                className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:border-[#10B981] focus:outline-none text-slate-800"
+                                value={createUserName}
+                                onChange={(e) => setCreateUserName(e.target.value)}
+                                disabled={currentUser.role !== UserRole.HR_MANAGER && currentUser.role !== UserRole.SUPER_ADMIN}
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[10px] font-bold uppercase text-slate-500 mb-0.5">E-mail Corporativo</label>
+                              <input
+                                type="email"
+                                required
+                                placeholder="lucas@empresa.com"
+                                className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:border-[#10B981] focus:outline-none text-slate-800"
+                                value={createUserEmail}
+                                onChange={(e) => setCreateUserEmail(e.target.value)}
+                                disabled={currentUser.role !== UserRole.HR_MANAGER && currentUser.role !== UserRole.SUPER_ADMIN}
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[10px] font-bold uppercase text-slate-500 mb-0.5">Setor / Departamento</label>
+                              <input
+                                type="text"
+                                required
+                                placeholder="Ex: Engenharia, Atendimento, TI"
+                                className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:border-[#10B981] focus:outline-none text-slate-800"
+                                value={createUserDepartment}
+                                onChange={(e) => setCreateUserDepartment(e.target.value)}
+                                disabled={currentUser.role !== UserRole.HR_MANAGER && currentUser.role !== UserRole.SUPER_ADMIN}
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[10px] font-bold uppercase text-slate-500 mb-0.5">Data de Admissão</label>
+                              <input
+                                type="date"
+                                required
+                                className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:border-[#10B981] focus:outline-none text-slate-800"
+                                value={createUserHireDate}
+                                onChange={(e) => setCreateUserHireDate(e.target.value)}
+                                disabled={currentUser.role !== UserRole.HR_MANAGER && currentUser.role !== UserRole.SUPER_ADMIN}
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[10px] font-bold uppercase text-slate-500 mb-0.5">Perfil de Acesso (RBAC)</label>
+                              <select
+                                className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-800"
+                                value={createUserRole}
+                                onChange={(e) => setCreateUserRole(e.target.value as UserRole)}
+                                disabled={currentUser.role !== UserRole.HR_MANAGER && currentUser.role !== UserRole.SUPER_ADMIN}
+                              >
+                                <option value={UserRole.COLLABORATOR}>Colaborador</option>
+                                <option value={UserRole.SUPERVISOR}>Supervisor</option>
+                                <option value={UserRole.HR_MANAGER}>Gestor de RH</option>
+                              </select>
+                            </div>
+
+                            <button
+                              type="submit"
+                              disabled={currentUser.role !== UserRole.HR_MANAGER && currentUser.role !== UserRole.SUPER_ADMIN}
+                              className="w-full bg-[#10B981] hover:bg-emerald-600 disabled:bg-slate-300 text-white font-semibold py-2 rounded-lg text-xs transition shadow-sm mt-2"
+                            >
+                              Criar Acesso Completo
+                            </button>
+                          </form>
+                        </div>
+                      )}
                     </div>
 
                     <div className="bg-slate-900 text-white p-5 rounded-2xl shadow-sm space-y-3">
                       <h4 className="text-xs font-bold uppercase text-teal-400">Onboarding Inteligente</h4>
                       <p className="text-[11px] text-slate-300 leading-normal">
-                        Quando o usuário acessa o link `/register?email=email@empresa.com`, o Flow RH lê a tabela de convites e vincula as permissões de acesso e o tenant `company_id` automaticamente.
+                        O Flow RH preserva os tenants isolados via Row Level Security (RLS). Acessos completos criados ficam imediatamente disponíveis no menu superior para alternância simulada de perfil e testes de visualização em tempo real.
                       </p>
                     </div>
                   </div>
                 </div>
+
+                {/* Edit Collaborator Overlay Modal */}
+                <AnimatePresence>
+                  {editingUserId && (
+                    <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.95, y: 15 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95, y: 15 }}
+                        className="bg-white rounded-2xl border border-slate-100 shadow-2xl max-w-lg w-full overflow-hidden text-slate-800 flex flex-col"
+                      >
+                        {/* Modal Header */}
+                        <div className="px-6 py-5 bg-gradient-to-r from-slate-50 to-white border-b border-slate-100 flex items-center justify-between">
+                          <div>
+                            <h3 className="font-extrabold text-slate-900 text-sm flex items-center gap-2">
+                              <span className="text-[#0043FF] text-base">📝</span> Editar Perfil de Acesso
+                            </h3>
+                            <p className="text-[10px] text-slate-500 mt-0.5 font-medium">
+                              Atualize os dados corporativos e as permissões de acesso do colaborador.
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => setEditingUserId(null)}
+                            className="p-1.5 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-600 transition"
+                          >
+                            <X className="w-5 h-5" />
+                          </button>
+                        </div>
+
+                        {/* Modal Form */}
+                        <form onSubmit={handleUpdateUser} className="p-6 space-y-4">
+                          {/* Form Grid */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {/* Nome Completo */}
+                            <div className="md:col-span-2">
+                              <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                                Nome Completo
+                              </label>
+                              <div className="relative">
+                                <input
+                                  type="text"
+                                  required
+                                  className="w-full text-xs border border-slate-200 rounded-xl pl-3.5 pr-10 py-2.5 focus:border-[#0043FF] focus:outline-none focus:ring-2 focus:ring-blue-100/50 bg-slate-50/50 hover:bg-white text-slate-800 font-medium transition"
+                                  value={editUserName}
+                                  onChange={(e) => setEditUserName(e.target.value)}
+                                  placeholder="Ex: Lucas Henrique"
+                                />
+                                <User className="w-4 h-4 text-slate-400 absolute right-3.5 top-3 pointer-events-none" />
+                              </div>
+                            </div>
+
+                            {/* E-mail Corporativo */}
+                            <div className="md:col-span-2">
+                              <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                                E-mail Corporativo
+                              </label>
+                              <div className="relative">
+                                <input
+                                  type="email"
+                                  required
+                                  className="w-full text-xs border border-slate-200 rounded-xl pl-3.5 pr-10 py-2.5 focus:border-[#0043FF] focus:outline-none focus:ring-2 focus:ring-blue-100/50 bg-slate-50/50 hover:bg-white text-slate-800 font-medium transition"
+                                  value={editUserEmail}
+                                  onChange={(e) => setEditUserEmail(e.target.value)}
+                                  placeholder="lucas@empresa.com"
+                                />
+                                <Mail className="w-4 h-4 text-slate-400 absolute right-3.5 top-3 pointer-events-none" />
+                              </div>
+                            </div>
+
+                            {/* Setor / Departamento */}
+                            <div>
+                              <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                                Setor / Departamento
+                              </label>
+                              <div className="relative">
+                                <input
+                                  type="text"
+                                  required
+                                  className="w-full text-xs border border-slate-200 rounded-xl pl-3.5 pr-10 py-2.5 focus:border-[#0043FF] focus:outline-none focus:ring-2 focus:ring-blue-100/50 bg-slate-50/50 hover:bg-white text-slate-800 font-medium transition"
+                                  value={editUserDepartment}
+                                  onChange={(e) => setEditUserDepartment(e.target.value)}
+                                  placeholder="Ex: Engenharia"
+                                />
+                                <Briefcase className="w-4 h-4 text-slate-400 absolute right-3.5 top-3 pointer-events-none" />
+                              </div>
+                            </div>
+
+                            {/* Data de Admissão */}
+                            <div>
+                              <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                                Data de Admissão
+                              </label>
+                              <div className="relative">
+                                <input
+                                  type="date"
+                                  required
+                                  className="w-full text-xs border border-slate-200 rounded-xl pl-3.5 pr-10 py-2.5 focus:border-[#0043FF] focus:outline-none focus:ring-2 focus:ring-blue-100/50 bg-slate-50/50 hover:bg-white text-slate-800 font-medium transition"
+                                  value={editUserHireDate}
+                                  onChange={(e) => setEditUserHireDate(e.target.value)}
+                                />
+                                <Calendar className="w-4 h-4 text-slate-400 absolute right-3.5 top-3 pointer-events-none" />
+                              </div>
+                            </div>
+
+                            {/* Perfil de Acesso (RBAC) */}
+                            <div className="md:col-span-2">
+                              <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                                Perfil de Acesso (RBAC)
+                              </label>
+                              <div className="relative">
+                                <select
+                                  className="w-full text-xs border border-slate-200 rounded-xl pl-3.5 pr-10 py-2.5 bg-slate-50/50 hover:bg-white focus:border-[#0043FF] focus:outline-none focus:ring-2 focus:ring-blue-100/50 text-slate-800 font-medium transition appearance-none"
+                                  value={editUserRole}
+                                  onChange={(e) => setEditUserRole(e.target.value as UserRole)}
+                                >
+                                  <option value={UserRole.COLLABORATOR}>Colaborador</option>
+                                  <option value={UserRole.SUPERVISOR}>Supervisor</option>
+                                  <option value={UserRole.HR_MANAGER}>Gestor de RH</option>
+                                </select>
+                                <Shield className="w-4 h-4 text-slate-400 absolute right-3.5 top-3.5 pointer-events-none" />
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Security Banner like on login screen */}
+                          <div className="bg-blue-50/50 border border-blue-100/80 rounded-xl p-3 flex items-start gap-2.5 text-[10px] text-blue-800 leading-normal">
+                            <span className="text-sm">🛡️</span>
+                            <div>
+                              <span className="font-bold block text-blue-900">Segurança Multi-Tenant Ativa</span>
+                              <span className="text-blue-600/90 font-medium">
+                                As alterações efetuadas neste cadastro serão sincronizadas em tempo real e protegidas sob as diretrizes de Row Level Security (RLS) da empresa ativa.
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Action Buttons */}
+                          <div className="flex justify-end gap-2.5 pt-4 border-t border-slate-100">
+                            <button
+                              type="button"
+                              onClick={() => setEditingUserId(null)}
+                              className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold rounded-xl transition"
+                            >
+                              Cancelar
+                            </button>
+                            <button
+                              type="submit"
+                              className="px-5 py-2.5 bg-[#0043FF] hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition shadow-md shadow-blue-100 hover:shadow-lg"
+                            >
+                              Salvar Alterações
+                            </button>
+                          </div>
+                        </form>
+                      </motion.div>
+                    </div>
+                  )}
+                </AnimatePresence>
               </motion.div>
             ) : currentTab === "flow_ai" ? (
               

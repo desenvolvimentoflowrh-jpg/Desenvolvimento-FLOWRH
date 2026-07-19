@@ -64,6 +64,18 @@ export const INITIAL_USERS: UserProfile[] = [
     points_balance: 14.5,
     active_streak: 3
   },
+  {
+    id: "user-6",
+    email: "marcia.supervisor@base44.com",
+    role: UserRole.SUPERVISOR,
+    company_id: "company-1",
+    name: "Márcia Mendes",
+    department: "Engenharia de Software",
+    hire_date: "2023-04-10",
+    avatar: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80",
+    points_balance: 6.0,
+    active_streak: 15
+  },
   // Aero RH solutions users
   {
     id: "user-5",
@@ -187,6 +199,7 @@ export const INITIAL_POSTS: Post[] = [
     user_name: "Mariana Ferreira",
     user_avatar: "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80",
     user_role: "Gestor de RH",
+    user_department: "Gente & Gestão",
     company_id: "company-1",
     content: "🚀 Boas-vindas ao novo portal **Flow RH** da Base44! Aqui você pode registrar seu ponto diário com validação biométrica, acompanhar seus treinamentos e participar ativamente do nosso mural corporativo.",
     category: "aviso",
@@ -215,8 +228,9 @@ export const INITIAL_POSTS: Post[] = [
     user_name: "Carlos Eduardo",
     user_avatar: "https://images.unsplash.com/photo-1560250097-0b93528c311a?w=150&auto=format&fit=crop&q=80",
     user_role: "Diretor de Operações",
+    user_department: "Diretoria",
     company_id: "company-1",
-    content: "Parabéns especial para @Ana Souza por conquistar a medalha de **Inovação Brilhante** hoje! O redesign da nossa marca institucional ficou impecável. Exemplo claro de excelência!",
+    content: "Parabéns especial para @Ana Souza por conquistar a medalha de **Inovação Brilhante** hoje! O redesign da nossa marca institutional ficou impecável. Exemplo claro de excelência!",
     category: "comemoracao",
     badge_award: {
       badge_name: "Inovação Brilhante",
@@ -243,6 +257,7 @@ export const INITIAL_POSTS: Post[] = [
     user_name: "Mariana Ferreira",
     user_avatar: "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80",
     user_role: "Gestor de RH",
+    user_department: "Gente & Gestão",
     company_id: "company-1",
     content: "📊 **Enquete de Integração:** Queremos ouvir vocês! Qual o melhor dia da semana para realizarmos nossa dinâmica de happy hour híbrida?",
     category: "operacao",

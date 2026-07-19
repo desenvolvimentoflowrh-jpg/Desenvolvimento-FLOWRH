@@ -1,5 +1,6 @@
 export enum UserRole {
   COLLABORATOR = "collaborator",
+  SUPERVISOR = "supervisor",
   HR_MANAGER = "hr_manager",
   SUPER_ADMIN = "super_admin",
 }
@@ -82,6 +83,7 @@ export interface Post {
   user_name: string;
   user_avatar: string;
   user_role: string;
+  user_department?: string;
   company_id: string;
   content: string;
   category: "aviso" | "operacao" | "comemoracao" | "treinamento" | "destaque";
