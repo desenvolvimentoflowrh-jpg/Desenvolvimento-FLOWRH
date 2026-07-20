@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { jsPDF } from "jspdf";
 import { motion, AnimatePresence } from "motion/react";
 import {
   LayoutDashboard,
@@ -38,7 +39,12 @@ import {
   Trash2,
   User,
   Mail,
-  Shield
+  Shield,
+  Palette,
+  HelpCircle,
+  Heart,
+  Download,
+  FileText
 } from "lucide-react";
 
 import { UserRole, UserProfile, Company, Invitation, TimeRecord, Comment, PollOption, Poll, BadgeAward, Post, Training } from "./types";
@@ -200,6 +206,8 @@ export default function App() {
   const [editUserHireDate, setEditUserHireDate] = useState("");
   const [editUserRole, setEditUserRole] = useState<UserRole>(UserRole.COLLABORATOR);
   const [editUserAvatar, setEditUserAvatar] = useState("");
+  const [editUserBirthDate, setEditUserBirthDate] = useState("");
+  const [editUserActive, setEditUserActive] = useState(true);
 
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
 
@@ -209,6 +217,27 @@ export default function App() {
   const [createUserDepartment, setCreateUserDepartment] = useState("");
   const [createUserHireDate, setCreateUserHireDate] = useState(new Date().toISOString().split('T')[0]);
   const [createUserRole, setCreateUserRole] = useState<UserRole>(UserRole.COLLABORATOR);
+  
+  // --- Profile Dropdown & Theme/Support States ---
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const [pageTheme, setPageTheme] = useState<"blue" | "emerald" | "amber" | "dark">("blue");
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showSupportModal, setShowSupportModal] = useState(false);
+  const [supportMessage, setSupportMessage] = useState("");
+  const [supportCategory, setSupportCategory] = useState("dúvida");
+  const [supportSuccess, setSupportSuccess] = useState(false);
+
+  // --- Self Profile Editing States ---
+  const [isEditingSelf, setIsEditingSelf] = useState(false);
+  const [selfName, setSelfName] = useState("");
+  const [selfEmail, setSelfEmail] = useState("");
+  const [selfBirthDate, setSelfBirthDate] = useState("");
+  const [selfAvatar, setSelfAvatar] = useState("");
+  const [selfAvatarError, setSelfAvatarError] = useState("");
+  const [selfPassword, setSelfPassword] = useState("");
+  const [showSelfPassword, setShowSelfPassword] = useState(false);
+  const [isDraggingAvatar, setIsDraggingAvatar] = useState(false);
+  const [selfSuccessMsg, setSelfSuccessMsg] = useState("");
   
   const [showBadgeSelector, setShowBadgeSelector] = useState(false);
   const [selectedBadge, setSelectedBadge] = useState<{name: string, icon: string} | null>(null);
@@ -228,7 +257,16 @@ export default function App() {
   const [geolocation, setGeolocation] = useState<{ lat: number; lng: number; address: string } | null>(null);
   const [pontoLoading, setPontoLoading] = useState(false);
   const [pontoSuccess, setPontoSuccess] = useState(false);
+  const [pontoError, setPontoError] = useState<string | null>(null);
+  const [pontoListTab, setPontoListTab] = useState<"hoje" | "data">("hoje");
+  const [pontoSelectedDate, setPontoSelectedDate] = useState<string>(() => new Date().toISOString().split("T")[0]);
   const [cameraPermissionError, setCameraPermissionError] = useState(false);
+  const [expedienteType, setExpedienteType] = useState<"comercial" | "flexivel" | "meio_periodo" | "12x36">(() => {
+    const saved = localStorage.getItem("flow_expediente_type");
+    return (saved as any) || "comercial";
+  });
+  const [adjustAmount, setAdjustAmount] = useState<string>("");
+  const [adjustReason, setAdjustReason] = useState<string>("");
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
@@ -374,6 +412,41 @@ export default function App() {
     }
   }, [currentTab]);
 
+  // Sync self profile editing states
+  useEffect(() => {
+    if (showProfileModal && currentUser) {
+      setSelfName(currentUser.name);
+      setSelfEmail(currentUser.email);
+      setSelfBirthDate(currentUser.birth_date || "");
+      setSelfAvatar(currentUser.avatar || "");
+      setSelfAvatarError("");
+      setSelfPassword(currentUser.password || "123456");
+      setShowSelfPassword(false);
+      setIsEditingSelf(false);
+      setSelfSuccessMsg("");
+    }
+  }, [showProfileModal, currentUser]);
+
+  // Sync default pointType based on last record sequence to assist the user
+  useEffect(() => {
+    const userRecords = timeRecords.filter(r => r.user_id === currentUser.id);
+    const lastRec = userRecords.length > 0 ? userRecords[0] : null;
+    if (lastRec) {
+      if (lastRec.type === "entrada" || lastRec.type === "almoco_volta") {
+        setPointType("saida"); // default expected next is Saída
+      } else {
+        setPointType("entrada"); // default expected next is Entrada
+      }
+    } else {
+      setPointType("entrada");
+    }
+    setPontoError(null);
+  }, [timeRecords, currentUser]);
+
+  useEffect(() => {
+    localStorage.setItem("flow_expediente_type", expedienteType);
+  }, [expedienteType]);
+
   const stopCamera = () => {
     if (cameraStreamRef.current) {
       cameraStreamRef.current.getTracks().forEach(track => {
@@ -458,6 +531,34 @@ export default function App() {
 
   // --- Clock-in Record Handler ---
   const handleRegisterPonto = () => {
+    // Validate entry/exit sequencing hierarchy
+    const userRecords = timeRecords.filter(r => r.user_id === currentUser.id);
+    const lastRec = userRecords.length > 0 ? userRecords[0] : null;
+
+    const isCurrentEntry = pointType === "entrada" || pointType === "almoco_volta";
+    const isCurrentExit = pointType === "saida" || pointType === "almoco_ida";
+
+    if (lastRec) {
+      const isLastEntry = lastRec.type === "entrada" || lastRec.type === "almoco_volta";
+      const isLastExit = lastRec.type === "saida" || lastRec.type === "almoco_ida";
+
+      if (isLastEntry && isCurrentEntry) {
+        setPontoError("Não é possível registrar duas entradas seguidas! Por favor, selecione Saída de Expediente ou Ida ao Almoço.");
+        return;
+      }
+      if (isLastExit && isCurrentExit) {
+        setPontoError("Não é possível registrar duas saídas seguidas! Por favor, selecione Entrada de Expediente ou Volta do Almoço.");
+        return;
+      }
+    } else {
+      // First record ever must be an entry
+      if (isCurrentExit) {
+        setPontoError("Seu primeiro registro deve ser uma Entrada! Por favor, selecione Entrada de Expediente ou Volta do Almoço.");
+        return;
+      }
+    }
+
+    setPontoError(null);
     setPontoLoading(true);
     // Mimic API delay
     setTimeout(() => {
@@ -480,20 +581,56 @@ export default function App() {
         type: pointType
       };
 
+      // Calculate dynamic balance modification if they registered a "saida" (exit)
+      let balanceMod = 0;
+      if (pointType === "saida") {
+        const todayStr = new Date().toDateString();
+        const todayRecordsBefore = timeRecords
+          .filter(r => r.user_id === currentUser.id && new Date(r.timestamp).toDateString() === todayStr)
+          .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+        // Combine with newRecord
+        const allTodayRecords = [...todayRecordsBefore, newRecord].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+        
+        let totalMs = 0;
+        let currentStart: number | null = null;
+        
+        for (let i = 0; i < allTodayRecords.length; i++) {
+          const rec = allTodayRecords[i];
+          const recTime = new Date(rec.timestamp).getTime();
+          
+          if (rec.type === "entrada" || rec.type === "almoco_volta") {
+            currentStart = recTime;
+          } else if (rec.type === "almoco_ida" || rec.type === "saida") {
+            if (currentStart) {
+              totalMs += (recTime - currentStart);
+              currentStart = null;
+            }
+          }
+        }
+
+        const hoursWorked = totalMs / (1000 * 60 * 60); // decimal hours
+        let dailyWorkload = 8;
+        if (expedienteType === "meio_periodo") dailyWorkload = 4;
+        else if (expedienteType === "12x36") dailyWorkload = 12;
+
+        if (hoursWorked > 0.1) {
+          balanceMod = Number((hoursWorked - dailyWorkload).toFixed(2));
+        } else {
+          // If no check-in was registered earlier on the same day, fallback to 0 or simulated default
+          balanceMod = 0; 
+        }
+      }
+
       setTimeRecords(prev => [newRecord, ...prev]);
       
       // Update User Balance & Streak
       setUsers(prevUsers =>
         prevUsers.map(u => {
           if (u.id === currentUser.id) {
-            // Clock-in increases streak slightly, lunch/exit adjusts hour balance
-            let balanceMod = 0;
-            if (pointType === "entrada") balanceMod = 0;
-            else if (pointType === "saida") balanceMod = 8; // Simulated 8 hours
-            
             return {
               ...u,
-              points_balance: u.points_balance + balanceMod,
+              points_balance: Number((u.points_balance + balanceMod).toFixed(2)),
               active_streak: u.active_streak + 1
             };
           }
@@ -504,7 +641,7 @@ export default function App() {
       // Refresh current user reference in state
       setCurrentUser(prev => ({
         ...prev,
-        points_balance: prev.points_balance + (pointType === "saida" ? 8 : 0),
+        points_balance: Number((prev.points_balance + balanceMod).toFixed(2)),
         active_streak: prev.active_streak + 1
       }));
 
@@ -537,6 +674,111 @@ export default function App() {
         setPontoSuccess(false);
       }, 4000);
     }, 1500);
+  };
+
+  // --- Download Ponto Receipt PDF ---
+  const handleDownloadReceipt = (record: TimeRecord) => {
+    try {
+      const doc = new jsPDF();
+      
+      // Header styles
+      doc.setFillColor(15, 23, 42); // slate-900 background for top bar
+      doc.rect(0, 0, 210, 35, "F");
+      
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(16);
+      doc.text("COMPROVANTE DE REGISTRO DE PONTO", 15, 18);
+      
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.text("SISTEMA DE PONTO ELETRÔNICO MULTI-TENANT - FLOW RH", 15, 26);
+      
+      // Receipt Body
+      doc.setTextColor(51, 65, 85); // slate-700
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.text("INFORMAÇÕES DO COLABORADOR", 15, 50);
+      
+      // Line
+      doc.setDrawColor(226, 232, 240); // slate-200
+      doc.setLineWidth(0.5);
+      doc.line(15, 52, 195, 52);
+      
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.text(`Nome Completo: ${record.user_name}`, 15, 60);
+      doc.text(`ID Interno: ${record.user_id}`, 15, 66);
+      doc.text(`Setor / Área: ${currentUser.department}`, 15, 72);
+      
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.text("DETALHES DO REGISTRO", 15, 85);
+      doc.line(15, 87, 195, 87);
+      
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      
+      const typeLabel = 
+        record.type === "entrada" ? "Entrada de Expediente" :
+        record.type === "almoco_ida" ? "Ida ao Almoço" :
+        record.type === "almoco_volta" ? "Volta do Almoço" :
+        record.type === "saida" ? "Saída de Expediente" : record.type;
+        
+      doc.text(`Tipo de Registro: ${typeLabel.toUpperCase()}`, 15, 95);
+      
+      const formattedDate = new Date(record.timestamp).toLocaleDateString("pt-BR", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric"
+      });
+      const formattedTime = new Date(record.timestamp).toLocaleTimeString("pt-BR", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
+      });
+      
+      doc.text(`Data do Registro: ${formattedDate}`, 15, 101);
+      doc.text(`Horário do Registro: ${formattedTime}`, 15, 107);
+      
+      // Location
+      const addressStr = record.location.address || "Não identificada (GPS Indisponível)";
+      doc.text(`Localização: ${addressStr}`, 15, 113);
+      doc.text(`Coordenadas: Lat ${record.location.lat.toFixed(5)}, Lng ${record.location.lng.toFixed(5)}`, 15, 119);
+      
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.text("AUTENTICAÇÃO E SEGURANÇA", 15, 132);
+      doc.line(15, 134, 195, 134);
+      
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.text("Método de Validação: Biometria Facial e Georreferenciamento", 15, 142);
+      doc.text("Status da Assinatura: Assinado Digitalmente via RLS & Supabase Session Tokens", 15, 147);
+      
+      // SHA placeholder simulation
+      const shaHash = `SHA-256: ${Array.from({length: 32}, () => Math.floor(Math.random()*16).toString(16)).join("")}`;
+      doc.setFont("courier", "normal");
+      doc.text(shaHash.toUpperCase(), 15, 153);
+      
+      // Bottom footer design
+      doc.setFillColor(248, 250, 252); // slate-50
+      doc.rect(15, 165, 180, 25, "F");
+      doc.setDrawColor(241, 245, 249);
+      doc.rect(15, 165, 180, 25, "D");
+      
+      doc.setTextColor(100, 116, 139); // slate-500
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(8);
+      doc.text("Este documento possui validade jurídica como comprovante de registro de ponto eletrônico", 20, 175);
+      doc.text("conforme as diretrizes do Ministério do Trabalho e Emprego (MTE) e Lei Geral de Proteção de Dados (LGPD).", 20, 180);
+      
+      // Save
+      doc.save(`comprovante-ponto-${record.type}-${record.timestamp.split("T")[0]}.pdf`);
+    } catch (err) {
+      console.error("Failed to generate PDF:", err);
+      alert("Houve um erro ao gerar o PDF. Por favor, tente novamente.");
+    }
   };
 
   // --- Onboarding Complete Handler ---
@@ -579,7 +821,8 @@ export default function App() {
       hire_date: new Date().toISOString().split("T")[0],
       avatar: `https://images.unsplash.com/photo-${1500000000000 + Math.floor(Math.random() * 999999)}?w=150&auto=format&fit=crop&q=80`,
       points_balance: 0,
-      active_streak: 1
+      active_streak: 1,
+      password: onboardPassword
     };
 
     // Update invitations status
@@ -729,14 +972,16 @@ export default function App() {
     setUsers(prev =>
       prev.map(u => {
         if (u.id === editingUserId) {
-          const updated = {
+          const updated: UserProfile = {
             ...u,
             name: editUserName.trim(),
             email: emailLower,
             department: editUserDepartment.trim(),
             hire_date: editUserHireDate,
             role: editUserRole,
-            avatar: editUserAvatar || u.avatar
+            avatar: editUserAvatar || u.avatar,
+            birth_date: editUserBirthDate,
+            active: editUserActive
           };
           if (currentUser.id === editingUserId) {
             setCurrentUser(updated);
@@ -748,7 +993,92 @@ export default function App() {
     );
 
     setEditingUserId(null);
-    setInviteSuccessMsg("Colaborador atualizado com sucesso!");
+    setInviteSuccessMsg("Colaborador updated com sucesso!");
+  };
+
+  const handleAvatarFile = (file: File) => {
+    setSelfAvatarError("");
+    
+    // Validate standard image formats
+    const validTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"];
+    if (!validTypes.includes(file.type)) {
+      setSelfAvatarError("Formato inválido. Use apenas JPG, JPEG, PNG, WEBP ou GIF.");
+      return;
+    }
+
+    // Validate size (max 5MB = 5 * 1024 * 1024 bytes)
+    const maxSize = 5 * 1024 * 1024;
+    if (file.size > maxSize) {
+      setSelfAvatarError("Tamanho limite excedido. A imagem deve ter no máximo 5MB.");
+      return;
+    }
+
+    // Read and convert to base64
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (typeof reader.result === "string") {
+        setSelfAvatar(reader.result);
+      }
+    };
+    reader.onerror = () => {
+      setSelfAvatarError("Erro ao ler o arquivo de imagem.");
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleAvatarDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingAvatar(true);
+  };
+
+  const handleAvatarDragLeave = () => {
+    setIsDraggingAvatar(false);
+  };
+
+  const handleAvatarDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingAvatar(false);
+    
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleAvatarFile(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleUpdateSelf = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selfName.trim() || !selfEmail.trim()) {
+      alert("Por favor, preencha os campos obrigatórios (Nome e E-mail).");
+      return;
+    }
+    if (selfPassword && selfPassword.length < 6) {
+      alert("A senha deve conter no mínimo 6 caracteres.");
+      return;
+    }
+
+    const emailLower = selfEmail.trim().toLowerCase();
+    const exists = users.some(u => u.id !== currentUser.id && u.email.toLowerCase() === emailLower);
+    if (exists) {
+      alert("Este e-mail já está em uso por outro colaborador.");
+      return;
+    }
+
+    const updated: UserProfile = {
+      ...currentUser,
+      name: selfName.trim(),
+      email: emailLower,
+      birth_date: selfBirthDate,
+      avatar: selfAvatar || currentUser.avatar,
+      password: selfPassword || currentUser.password || "123456"
+    };
+
+    // Update in users list
+    setUsers(prev => prev.map(u => u.id === currentUser.id ? updated : u));
+
+    // Update in current user state
+    setCurrentUser(updated);
+
+    setSelfSuccessMsg("Informações pessoais atualizadas com sucesso!");
+    setIsEditingSelf(false);
   };
 
   const handleDeleteUser = (targetUserId: string) => {
@@ -1150,7 +1480,7 @@ As políticas padrões da **${userCompany?.name}** de reembolso cobrem até **R$
                 setTimeout(() => {
                   const targetUser = users.find(u => u.email.toLowerCase() === loginEmail.trim().toLowerCase());
                   if (!targetUser) {
-                    setLoginError("E-mail corporativo não encontrado. Por favor, verifique ou utilize uma conta de demonstração rápida.");
+                    setLoginError("E-mail corporativo não encontrado. Por favor, verifique se digitou corretamente ou entre em contato com seu gestor.");
                     setLoginLoading(false);
                     return;
                   }
@@ -1158,12 +1488,25 @@ As políticas padrões da **${userCompany?.name}** de reembolso cobrem até **R$
                   if (targetUser.company_id !== loginCompanyId) {
                     const expectedComp = companies.find(c => c.id === targetUser.company_id)?.name || "Outra empresa";
                     const triedComp = companies.find(c => c.id === loginCompanyId)?.name || "Empresa selecionada";
-                    setLoginError(`Acesso Negado! O e-mail informado pertence à empresa "${expectedComp}", mas você tentou entrar na empresa "${triedComp}". O isolamento Multi-Tenant por Row Level Security (RLS) impede este login.`);
+                    setLoginError(`Acesso Negado! O e-mail informado pertence à empresa "${expectedComp}", mas você tentou entrar na empresa "${triedComp}". O isolamento Multi-Tenant por Row Level Security (RLS) impede este login. Por favor, entre em contato com seu gestor.`);
                     setLoginLoading(false);
                     return;
                   }
 
-                  // If email exists and tenant matches, sign in!
+                  if (targetUser.active === false) {
+                    setLoginError("Acesso Negado! Esta conta de colaborador foi inativada. Por favor, entre em contato com seu gestor para reativação.");
+                    setLoginLoading(false);
+                    return;
+                  }
+
+                  const expectedPassword = targetUser.password || "123456";
+                  if (loginPassword !== expectedPassword) {
+                    setLoginError("Senha incorreta! Por favor, verifique se digitou corretamente ou entre em contato com seu gestor.");
+                    setLoginLoading(false);
+                    return;
+                  }
+
+                  // If email exists, tenant matches and password is correct, sign in!
                   setCurrentUser(targetUser);
                   setIsLoggedIn(true);
                   localStorage.setItem("flow_is_logged_in", "true");
@@ -1218,7 +1561,7 @@ As políticas padrões da **${userCompany?.name}** de reembolso cobrem até **R$
                   <label className="block text-[10px] font-bold uppercase text-slate-500 tracking-wider">
                     Senha de Acesso
                   </label>
-                  <span className="text-[9px] text-slate-400 font-medium">Qualquer senha é aceita para teste</span>
+                  <span className="text-[9px] text-slate-400 font-medium">Senha padrão para teste: 123456</span>
                 </div>
                 <div className="relative">
                   <input
@@ -1296,6 +1639,11 @@ As políticas padrões da **${userCompany?.name}** de reembolso cobrem até **R$
                         setLoginCompanyId(u.company_id);
                         setLoginError("");
                         
+                        if (u.active === false) {
+                          setLoginError(`Acesso Negado! O colaborador "${u.name}" foi inativado. Ative-o novamente no painel "Empresa" com uma conta de Administrador ativa para poder testar este perfil, ou entre em contato com seu gestor.`);
+                          return;
+                        }
+
                         // Smooth auto-login to make testing seamless
                         setLoginLoading(true);
                         setTimeout(() => {
@@ -1306,16 +1654,23 @@ As políticas padrões da **${userCompany?.name}** de reembolso cobrem até **R$
                           setLoginLoading(false);
                         }, 500);
                       }}
-                      className="w-full text-left bg-slate-800/60 hover:bg-slate-800 border border-slate-700/50 hover:border-[#14B8A6] rounded-xl p-3 transition duration-200 flex items-center justify-between gap-3 group cursor-pointer"
+                      className={`w-full text-left bg-slate-800/60 hover:bg-slate-800 border border-slate-700/50 hover:border-[#14B8A6] rounded-xl p-3 transition duration-200 flex items-center justify-between gap-3 group cursor-pointer ${
+                        u.active === false ? "opacity-55 hover:border-red-500/30" : ""
+                      }`}
                     >
-                      <div className="flex items-center gap-2.5">
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
                         <img src={u.avatar} alt={u.name} className="w-8 h-8 rounded-full object-cover border border-slate-700 shrink-0" />
-                        <div className="min-w-0">
-                          <div className="text-xs font-bold text-slate-200 group-hover:text-white truncate">{u.name}</div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-bold text-slate-200 group-hover:text-white flex items-center gap-1.5 min-w-0">
+                            <span className="truncate">{u.name}</span>
+                            {u.active === false && (
+                              <span className="text-[7px] font-extrabold bg-red-950 text-red-400 border border-red-900 px-1 rounded uppercase shrink-0">Inativo</span>
+                            )}
+                          </div>
                           <div className="text-[10px] text-slate-400 truncate font-mono">{u.email}</div>
                         </div>
                       </div>
-                      <div className="text-right shrink-0">
+                      <div className="text-right shrink-0 flex flex-col items-end">
                         <span className="text-[8px] font-bold text-slate-300 bg-slate-700 px-1.5 py-0.5 rounded block uppercase mb-1 truncate max-w-[80px]">
                           {comp?.name.split(" ")[0]}
                         </span>
@@ -1347,7 +1702,7 @@ As políticas padrões da **${userCompany?.name}** de reembolso cobrem até **R$
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans flex flex-col antialiased relative overflow-hidden">
+    <div data-theme={pageTheme} className="min-h-screen bg-slate-50 text-slate-800 font-sans flex flex-col antialiased relative overflow-hidden">
       
       {/* Background Swirl Snowflakes animation */}
       <FallingSwirlSnowflakes />
@@ -1424,32 +1779,164 @@ As políticas padrões da **${userCompany?.name}** de reembolso cobrem até **R$
             </span>
             <div className="text-xs font-medium text-white">{currentUser.name}</div>
           </div>
-          <div className="relative group">
-            <img
-              src={currentUser.avatar}
-              alt={currentUser.name}
-              className="w-10 h-10 rounded-full object-cover border-2 border-white/50 shadow-sm cursor-pointer"
-            />
+          
+          <div className="relative">
             <button
-              onClick={() => {
-                setIsLoggedIn(false);
-                localStorage.setItem("flow_is_logged_in", "false");
-              }}
-              className="absolute right-0 mt-1.5 hidden group-hover:block bg-slate-900 text-white text-[10px] font-bold px-2 py-1 rounded shadow-md border border-slate-700 whitespace-nowrap hover:bg-red-600 transition"
+              onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
+              className="flex items-center gap-1.5 focus:outline-none focus:ring-2 focus:ring-white/30 rounded-full p-0.5 transition"
+              aria-label="Menu do Usuário"
             >
-              Sair da Conta
+              <img
+                src={currentUser.avatar}
+                alt={currentUser.name}
+                className="w-10 h-10 rounded-full object-cover border-2 border-white/50 shadow-sm cursor-pointer hover:scale-105 transition"
+              />
+              <ChevronDown className={`w-3.5 h-3.5 text-white/70 transition-transform duration-200 ${isProfileMenuOpen ? 'rotate-180 text-white' : ''}`} />
             </button>
+
+            <AnimatePresence>
+              {isProfileMenuOpen && (
+                <>
+                  {/* Invisible backdrop to close the menu on click outside */}
+                  <div
+                    className="fixed inset-0 z-45"
+                    onClick={() => setIsProfileMenuOpen(false)}
+                  />
+                  
+                  {/* Dropdown Card */}
+                  <motion.div
+                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute right-0 mt-2.5 w-72 bg-white rounded-2xl border border-slate-100 shadow-xl overflow-hidden z-50 text-slate-800"
+                  >
+                    {/* User Header Section */}
+                    <div className="p-4 bg-gradient-to-r from-slate-50 to-white border-b border-slate-100 flex items-center gap-3">
+                      <img
+                        src={currentUser.avatar}
+                        alt={currentUser.name}
+                        className="w-11 h-11 rounded-full object-cover border border-slate-200"
+                      />
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-slate-900 truncate">{currentUser.name}</div>
+                        <div className="text-[10px] text-slate-500 truncate mb-1">{currentUser.email}</div>
+                        <span className={`inline-block text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded ${
+                          currentUser.role === UserRole.SUPER_ADMIN ? "bg-purple-100 text-purple-700" :
+                          currentUser.role === UserRole.HR_MANAGER ? "bg-blue-100 text-[#0043FF]" :
+                          currentUser.role === UserRole.SUPERVISOR ? "bg-amber-100 text-amber-700" :
+                          "bg-slate-100 text-slate-600"
+                        }`}>
+                          {currentUser.role === UserRole.SUPER_ADMIN ? "Super Admin" :
+                           currentUser.role === UserRole.HR_MANAGER ? "Gestor de RH" :
+                           currentUser.role === UserRole.SUPERVISOR ? "Supervisor" :
+                           "Colaborador"}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Menu items */}
+                    <div className="p-1.5 space-y-0.5">
+                      {/* My Profile option */}
+                      <button
+                        onClick={() => {
+                          setIsProfileMenuOpen(false);
+                          setShowProfileModal(true);
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-slate-700 hover:text-[#0043FF] hover:bg-blue-50/50 rounded-xl transition text-left"
+                      >
+                        <User className="w-4 h-4 text-slate-400" />
+                        <span>Meu Perfil</span>
+                      </button>
+
+                      {/* Theme Selector Section inside dropdown */}
+                      <div className="px-3 py-2 border-t border-slate-100/80">
+                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                          <Palette className="w-3.5 h-3.5 text-slate-400" />
+                          <span>Tema da Página</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {/* Theme Blue */}
+                          <button
+                            onClick={() => setPageTheme("blue")}
+                            className={`flex items-center gap-1 px-2 py-1 text-[10px] font-bold rounded-lg border transition ${
+                              pageTheme === "blue"
+                                ? "bg-blue-50 border-blue-200 text-[#0043FF]"
+                                : "bg-white border-slate-100 hover:bg-slate-50 text-slate-600"
+                            }`}
+                          >
+                            <span className="w-2.5 h-2.5 rounded-full bg-[#0043FF]" />
+                            <span>Padrão</span>
+                          </button>
+                          {/* Theme Emerald */}
+                          <button
+                            onClick={() => setPageTheme("emerald")}
+                            className={`flex items-center gap-1 px-2 py-1 text-[10px] font-bold rounded-lg border transition ${
+                              pageTheme === "emerald"
+                                ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                                : "bg-white border-slate-100 hover:bg-slate-50 text-slate-600"
+                            }`}
+                          >
+                            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                            <span>Floresta</span>
+                          </button>
+                          {/* Theme Amber */}
+                          <button
+                            onClick={() => setPageTheme("amber")}
+                            className={`flex items-center gap-1 px-2 py-1 text-[10px] font-bold rounded-lg border transition ${
+                              pageTheme === "amber"
+                                ? "bg-amber-50 border-amber-200 text-amber-700"
+                                : "bg-white border-slate-100 hover:bg-slate-50 text-slate-600"
+                            }`}
+                          >
+                            <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+                            <span>Pôr do Sol</span>
+                          </button>
+                          {/* Theme Dark */}
+                          <button
+                            onClick={() => setPageTheme("dark")}
+                            className={`flex items-center gap-1 px-2 py-1 text-[10px] font-bold rounded-lg border transition ${
+                              pageTheme === "dark"
+                                ? "bg-slate-800 border-slate-700 text-indigo-400"
+                                : "bg-white border-slate-100 hover:bg-slate-50 text-slate-600"
+                            }`}
+                          >
+                            <span className="w-2.5 h-2.5 rounded-full bg-slate-900 border border-slate-700" />
+                            <span>Escuro</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Support option */}
+                      <button
+                        onClick={() => {
+                          setIsProfileMenuOpen(false);
+                          setShowSupportModal(true);
+                          setSupportSuccess(false);
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 border-t border-slate-100 text-xs font-semibold text-slate-700 hover:text-[#0043FF] hover:bg-blue-50/50 rounded-xl transition text-left"
+                      >
+                        <HelpCircle className="w-4 h-4 text-slate-400" />
+                        <span>Suporte Técnico</span>
+                      </button>
+
+                      {/* LogOut Option */}
+                      <button
+                        onClick={() => {
+                          setIsLoggedIn(false);
+                          localStorage.setItem("flow_is_logged_in", "false");
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 border-t border-slate-100 text-xs font-bold text-red-600 hover:bg-red-50/50 rounded-xl transition text-left"
+                      >
+                        <LogOut className="w-4 h-4 text-red-500" />
+                        <span>Sair da Conta</span>
+                      </button>
+                    </div>
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
           </div>
-          <button
-            onClick={() => {
-              setIsLoggedIn(false);
-              localStorage.setItem("flow_is_logged_in", "false");
-            }}
-            className="text-white/80 hover:text-white p-1 rounded-lg hover:bg-white/10 transition"
-            title="Sair da Conta"
-          >
-            <LogOut className="w-5 h-5" />
-          </button>
         </div>
       </header>
 
@@ -2687,6 +3174,16 @@ As políticas padrões da **${userCompany?.name}** de reembolso cobrem até **R$
                       </div>
                     )}
 
+                    {pontoError && (
+                      <div className="bg-rose-50 text-rose-800 text-xs p-4 rounded-xl flex items-center gap-3 border border-rose-100 mb-4">
+                        <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+                        <div>
+                          <div className="font-bold">Erro de Sequenciamento de Ponto</div>
+                          <p className="text-[11px] text-rose-700 leading-normal">{pontoError}</p>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="bg-slate-900 aspect-video rounded-xl relative overflow-hidden flex flex-col items-center justify-center text-white border-4 border-slate-950 shadow-inner">
                       {/* Video capture / Canvas or Placeholder */}
                       {cameraActive ? (
@@ -2768,15 +3265,43 @@ As políticas padrões da **${userCompany?.name}** de reembolso cobrem até **R$
                       <div>
                         <label className="block text-xs font-semibold uppercase text-slate-500 mb-1">Tipo de Registro</label>
                         <select
-                          className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 bg-white"
+                          className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 bg-white font-medium"
                           value={pointType}
-                          onChange={(e) => setPointType(e.target.value as TimeRecord["type"])}
+                          onChange={(e) => {
+                            setPointType(e.target.value as TimeRecord["type"]);
+                            setPontoError(null);
+                          }}
                         >
                           <option value="entrada">⏰ Entrada de Expediente</option>
                           <option value="almoco_ida">🍔 Ida ao Almoço</option>
                           <option value="almoco_volta">☕ Volta do Almoço</option>
                           <option value="saida">🚪 Saída de Expediente</option>
                         </select>
+                        {(() => {
+                          const userRecords = timeRecords.filter(r => r.user_id === currentUser.id);
+                          const lastRec = userRecords.length > 0 ? userRecords[0] : null;
+                          const nextExpected = lastRec 
+                            ? (lastRec.type === "entrada" || lastRec.type === "almoco_volta" ? "exit" : "entry")
+                            : "entry";
+
+                          const isCurrentSelectedValid = lastRec 
+                            ? (nextExpected === "exit" ? (pointType === "saida" || pointType === "almoco_ida") : (pointType === "entrada" || pointType === "almoco_volta"))
+                            : (pointType === "entrada" || pointType === "almoco_volta");
+
+                          return (
+                            <div className="mt-1.5">
+                              {isCurrentSelectedValid ? (
+                                <p className="text-[10px] text-emerald-600 font-bold flex items-center gap-1">
+                                  <span>✅</span> Sequência Válida (Último: {lastRec ? lastRec.type.replace("_", " ") : "Nenhum"})
+                                </p>
+                              ) : (
+                                <p className="text-[10px] text-amber-600 font-bold flex items-center gap-1 leading-normal">
+                                  <span>⚠️</span> Sequência Incorreta. Esperado: {nextExpected === "entry" ? "Entrada ou Volta Almoço" : "Saída ou Ida Almoço"}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
 
                       <div>
@@ -2818,28 +3343,363 @@ As políticas padrões da **${userCompany?.name}** de reembolso cobrem até **R$
                       </button>
                     </div>
                   </div>
+
+                  {/* Gestão de Expedientes e Banco de Horas Card */}
+                  <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 space-y-6">
+                    <div className="flex justify-between items-center border-b border-slate-100 pb-4">
+                      <div>
+                        <h4 className="font-bold text-slate-800 text-sm">Gestão de Expedientes & Banco de Horas</h4>
+                        <p className="text-[10px] text-slate-400 font-medium">Controle de jornadas de trabalho, saldo e compliance legal</p>
+                      </div>
+                      <span className="p-2 bg-purple-50 text-[#8B5CF6] rounded-xl text-lg">⏳</span>
+                    </div>
+
+                    {/* Hour Bank Balance Field */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="bg-gradient-to-br from-slate-900 to-slate-950 text-white rounded-xl p-4 relative overflow-hidden shadow-sm">
+                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Saldo do Banco de Horas</div>
+                        <div className="flex items-baseline gap-1 mt-1.5">
+                          <span className={`text-2xl font-extrabold font-mono ${currentUser.points_balance >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                            {currentUser.points_balance >= 0 ? `+${currentUser.points_balance}` : currentUser.points_balance}h
+                          </span>
+                        </div>
+                        <p className="text-[9px] text-slate-400 mt-1.5 leading-normal">
+                          {currentUser.points_balance >= 0 
+                            ? "✅ Saldo credor acumulado disponível para folga ou indenização." 
+                            : "⚠️ Saldo devedor. Sujeito a compensação dentro do período."}
+                        </p>
+                      </div>
+
+                      <div className="bg-slate-50 border border-slate-100 rounded-xl p-4">
+                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Jornada de Hoje</div>
+                        {(() => {
+                          // Calculate worked hours today
+                          const todayStr = new Date().toDateString();
+                          const todayRecords = timeRecords
+                            .filter(r => r.user_id === currentUser.id && new Date(r.timestamp).toDateString() === todayStr)
+                            .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+                          let totalMs = 0;
+                          let currentStart: number | null = null;
+                          let hasEntrada = false;
+                          let horaEntradaLabel = "Não registrada";
+
+                          for (let i = 0; i < todayRecords.length; i++) {
+                            const rec = todayRecords[i];
+                            const recTime = new Date(rec.timestamp).getTime();
+
+                            if (rec.type === "entrada" || rec.type === "almoco_volta") {
+                              currentStart = recTime;
+                              if (rec.type === "entrada") {
+                                hasEntrada = true;
+                                horaEntradaLabel = new Date(rec.timestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+                              }
+                            } else if (rec.type === "almoco_ida" || rec.type === "saida") {
+                              if (currentStart) {
+                                totalMs += (recTime - currentStart);
+                                currentStart = null;
+                              }
+                            }
+                          }
+
+                          if (currentStart) {
+                            totalMs += (new Date().getTime() - currentStart);
+                          }
+
+                          const hoursDecimal = totalMs / (1000 * 60 * 60);
+                          const workedHours = Math.floor(hoursDecimal);
+                          const workedMinutes = Math.round((hoursDecimal - workedHours) * 60);
+
+                          let expectedDailyWorkload = 8;
+                          if (expedienteType === "meio_periodo") expectedDailyWorkload = 4;
+                          else if (expedienteType === "12x36") expectedDailyWorkload = 12;
+
+                          return (
+                            <div className="mt-1.5 space-y-1.5">
+                              <div className="text-sm font-extrabold text-slate-800 flex justify-between items-baseline">
+                                <span>{workedHours}h {workedMinutes}m</span>
+                                <span className="text-[10px] text-slate-400 font-semibold">Meta: {expectedDailyWorkload}h/dia</span>
+                              </div>
+                              <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                                <div 
+                                  className="bg-[#8B5CF6] h-full rounded-full transition-all duration-500" 
+                                  style={{ width: `${Math.min(100, (hoursDecimal / expectedDailyWorkload) * 100)}%` }}
+                                />
+                              </div>
+                              <p className="text-[9px] text-slate-500 font-medium">
+                                🚪 Entrada: <span className="font-bold text-slate-700">{horaEntradaLabel}</span>
+                              </p>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </div>
+
+                    {/* Work Schedule Configuration Selector */}
+                    <div className="p-4 bg-slate-50/50 rounded-xl border border-slate-100 space-y-3">
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-1">
+                        <div>
+                          <label className="block text-[10px] font-bold uppercase text-slate-500">Expediente de Trabalho Ativo</label>
+                          <p className="text-[10px] text-slate-400 font-medium">Parâmetros de controle de horas de entrada/saída</p>
+                        </div>
+                        {(currentUser.role === UserRole.HR_MANAGER || currentUser.role === UserRole.SUPERVISOR || currentUser.role === UserRole.SUPER_ADMIN) ? (
+                          <select
+                            value={expedienteType}
+                            onChange={(e) => setExpedienteType(e.target.value as any)}
+                            className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-purple-500 pointer-events-auto relative z-10"
+                          >
+                            <option value="comercial">💼 Comercial Padrão (8h)</option>
+                            <option value="flexivel">🧘 Flexível (8h)</option>
+                            <option value="meio_periodo">⏱️ Meio Período (4h)</option>
+                            <option value="12x36">🚂 Escala 12x36 (12h)</option>
+                          </select>
+                        ) : (
+                          <span className="text-[11px] font-bold bg-[#8B5CF6]/10 text-[#8B5CF6] px-2 py-0.5 rounded-md border border-[#8B5CF6]/20 uppercase">
+                            {expedienteType === "comercial" ? "💼 Comercial" : expedienteType === "flexivel" ? "🧘 Flexível" : expedienteType === "meio_periodo" ? "⏱️ Meio Período" : "🚂 Escala 12x36"}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Display shift details */}
+                      <div className="text-[11px] text-slate-500 space-y-1 bg-white p-3 rounded-lg border border-slate-100">
+                        {expedienteType === "comercial" && (
+                          <>
+                            <div className="font-bold text-slate-700">💼 Comercial Padrão (8h diárias)</div>
+                            <div>• Horário base: das <span className="font-semibold text-slate-700">09:00 às 18:00</span> com <span className="font-semibold text-slate-700">1 hora de intervalo</span>.</div>
+                            <div>• Tolerância legal: <span className="font-semibold text-slate-700">10 minutos diários</span> para atrasos ou horas extras.</div>
+                          </>
+                        )}
+                        {expedienteType === "flexivel" && (
+                          <>
+                            <div className="font-bold text-slate-700">🧘 Jornada Flexível (Meta de 8h diárias)</div>
+                            <div>• Horário base: Livre escolha, recomendado <span className="font-semibold text-slate-700">40h semanais</span>.</div>
+                            <div>• Banco de horas: Apura o saldo líquido final trabalhado contra a meta de 8h diárias.</div>
+                          </>
+                        )}
+                        {expedienteType === "meio_periodo" && (
+                          <>
+                            <div className="font-bold text-slate-700">⏱️ Estágio ou Meio Período (4h diárias)</div>
+                            <div>• Horário base: das <span className="font-semibold text-slate-700">08:00 às 12:00</span> ou das <span className="font-semibold text-slate-700">13:00 às 17:00</span> (sem intervalo obrigatório).</div>
+                            <div>• Limite de horas extras: Conforme legislação vigente de estágio.</div>
+                          </>
+                        )}
+                        {expedienteType === "12x36" && (
+                          <>
+                            <div className="font-bold text-slate-700">🚂 Escala Especial 12x36 (12h de trabalho)</div>
+                            <div>• Horário base: <span className="font-semibold text-slate-700">12h contínuas</span> de trabalho seguidas por <span className="font-semibold text-slate-700">36h consecutivas de descanso</span>.</div>
+                            <div>• Almoço: <span className="font-semibold text-slate-700">1 hora inclusa</span> na jornada.</div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Manual Hours Adjustment (for Supervisors and HR Managers) */}
+                    {(currentUser.role === UserRole.HR_MANAGER || currentUser.role === UserRole.SUPER_ADMIN || currentUser.role === UserRole.SUPERVISOR) && (
+                      <div className="p-4 bg-amber-50/50 border border-amber-100 rounded-xl space-y-3">
+                        <div>
+                          <div className="text-[11px] font-bold text-amber-800 flex items-center gap-1">
+                            <span>🛠️</span> Painel do Gestor: Ajuste Manual de Banco de Horas
+                          </div>
+                          <p className="text-[10px] text-amber-700/80 mt-0.5 leading-normal">
+                            Como gestor, lance créditos ou débitos avulsos de horas no banco deste colaborador para fins de ajuste ou correção retroativa.
+                          </p>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[9px] font-bold text-slate-500 uppercase mb-1">Horas a Lançar (ex: +1.5 ou -2.0)</label>
+                            <input
+                              type="text"
+                              value={adjustAmount}
+                              onChange={(e) => setAdjustAmount(e.target.value)}
+                              placeholder="Ex: +2.5 ou -1.0"
+                              className="w-full text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white text-slate-800 focus:outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[9px] font-bold text-slate-500 uppercase mb-1">Motivo / Justificativa legal</label>
+                            <input
+                              type="text"
+                              value={adjustReason}
+                              onChange={(e) => setAdjustReason(e.target.value)}
+                              placeholder="Ex: Hora extra aprovada, erro de registro"
+                              className="w-full text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white text-slate-800 focus:outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex justify-end pt-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const hrs = parseFloat(adjustAmount);
+                              if (isNaN(hrs)) {
+                                alert("Por favor, digite uma quantidade de horas válida (ex: 2 ou -1.5).");
+                                return;
+                              }
+                              if (!adjustReason.trim()) {
+                                alert("Por favor, informe uma justificativa legal para o ajuste de banco de horas.");
+                                return;
+                              }
+
+                              // Update points_balance
+                              setUsers(prevUsers =>
+                                prevUsers.map(u => {
+                                  if (u.id === currentUser.id) {
+                                    return {
+                                      ...u,
+                                      points_balance: Number((u.points_balance + hrs).toFixed(2))
+                                    };
+                                  }
+                                  return u;
+                                })
+                              );
+
+                              setCurrentUser(prev => ({
+                                ...prev,
+                                points_balance: Number((prev.points_balance + hrs).toFixed(2))
+                              }));
+
+                              alert(`Sucesso! Ajuste de ${hrs > 0 ? `+${hrs}` : hrs}h adicionado com sucesso ao banco de horas.`);
+                              setAdjustAmount("");
+                              setAdjustReason("");
+                            }}
+                            className="bg-amber-600 hover:bg-amber-700 text-white font-bold py-1.5 px-4 rounded-lg text-[10px] transition shadow-sm pointer-events-auto relative z-10"
+                          >
+                            Lançar no Banco de Horas
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* Point History right panel */}
                 <div className="lg:col-span-5 space-y-6">
                   <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
-                    <h3 className="font-bold text-slate-800 text-sm mb-4">Seus Registros de Hoje</h3>
-                    <div className="space-y-3">
-                      {timeRecords.filter(r => r.user_id === currentUser.id).slice(0, 4).map(r => (
-                        <div key={r.id} className="flex gap-3 items-center bg-slate-50 p-3 rounded-xl border border-slate-100 hover:bg-slate-100/55 transition">
-                          <img src={r.photo_url} alt="Verified biometry" className="w-10 h-10 rounded-lg object-cover border border-slate-200" />
-                          <div className="flex-1 text-xs">
-                            <div className="font-bold capitalize text-slate-800">{r.type.replace("_", " ")}</div>
-                            <p className="text-[10px] text-slate-400">{new Date(r.timestamp).toLocaleTimeString("pt-BR")}</p>
-                          </div>
-                          <span className="text-[10px] bg-green-50 text-green-700 font-bold py-0.5 px-2 rounded-full flex items-center gap-0.5 border border-green-100">
-                            <Check className="w-3 h-3" /> Validado
-                          </span>
-                        </div>
-                      ))}
-                      {timeRecords.filter(r => r.user_id === currentUser.id).length === 0 && (
-                        <p className="text-xs text-slate-400 text-center py-6">Você ainda não registrou nenhum ponto hoje.</p>
-                      )}
+                    {/* Header with Switcher Tabs */}
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-100 pb-4 mb-4 gap-3">
+                      <div>
+                        <h3 className="font-bold text-slate-800 text-sm">Histórico de Ponto</h3>
+                        <p className="text-[10px] text-slate-400 font-medium">Consulte e baixe seus comprovantes válidos</p>
+                      </div>
+                      <div className="flex bg-slate-100 p-0.5 rounded-lg w-full sm:w-auto">
+                        <button
+                          onClick={() => setPontoListTab("hoje")}
+                          className={`flex-1 sm:flex-none px-3 py-1 text-[11px] font-bold rounded-md transition ${pontoListTab === "hoje" ? "bg-white text-[#8B5CF6] shadow-sm" : "text-slate-500 hover:text-slate-800"}`}
+                        >
+                          Hoje
+                        </button>
+                        <button
+                          onClick={() => setPontoListTab("data")}
+                          className={`flex-1 sm:flex-none px-3 py-1 text-[11px] font-bold rounded-md transition ${pontoListTab === "data" ? "bg-white text-[#8B5CF6] shadow-sm" : "text-slate-500 hover:text-slate-800"}`}
+                        >
+                          Escolher Dia
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Date picker shown if "data" tab is selected */}
+                    {pontoListTab === "data" && (
+                      <div className="mb-4 bg-slate-50 p-3 rounded-xl border border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 animate-fade-in">
+                        <span className="text-[11px] font-bold text-slate-500 flex items-center gap-1.5">
+                          <span>📅</span> Selecione o Dia Desejado:
+                        </span>
+                        <input
+                          type="date"
+                          className="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 focus:border-[#8B5CF6] focus:outline-none focus:ring-2 focus:ring-purple-100/50 font-semibold bg-white text-slate-800"
+                          value={pontoSelectedDate}
+                          onChange={(e) => setPontoSelectedDate(e.target.value)}
+                        />
+                      </div>
+                    )}
+
+                    <div className="space-y-4">
+                      {(() => {
+                        const todayString = new Date().toDateString();
+                        const filteredRecords = pontoListTab === "hoje" 
+                          ? timeRecords.filter(r => r.user_id === currentUser.id && new Date(r.timestamp).toDateString() === todayString)
+                          : timeRecords.filter(r => {
+                              if (r.user_id !== currentUser.id) return false;
+                              const recordDateStr = new Date(r.timestamp).toISOString().split("T")[0];
+                              return recordDateStr === pontoSelectedDate;
+                            });
+
+                        if (filteredRecords.length === 0) {
+                          const formattedDateLabel = pontoListTab === "data" 
+                            ? new Date(pontoSelectedDate + "T00:00:00").toLocaleDateString("pt-BR") 
+                            : "";
+                          return (
+                            <div className="text-center py-8 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                              <p className="text-sm font-semibold text-slate-400">Nenhum registro encontrado</p>
+                              <p className="text-[11px] text-slate-400 max-w-[240px] mx-auto mt-1 leading-normal">
+                                {pontoListTab === "hoje" 
+                                  ? "Você ainda não registrou nenhum ponto hoje nesta empresa." 
+                                  : `Você não possui registros de ponto cadastrados no dia ${formattedDateLabel}.`}
+                              </p>
+                            </div>
+                          );
+                        }
+
+                        return filteredRecords.map(r => {
+                          // Beautiful type tag styling
+                          const typeColors = 
+                            r.type === "entrada" ? "bg-emerald-50 text-emerald-700 border-emerald-100" :
+                            r.type === "saida" ? "bg-rose-50 text-rose-700 border-rose-100" :
+                            "bg-amber-50 text-amber-700 border-amber-100";
+
+                          const typeName = 
+                            r.type === "entrada" ? "Entrada" :
+                            r.type === "saida" ? "Saída" :
+                            r.type === "almoco_ida" ? "Ida Almoço" :
+                            r.type === "almoco_volta" ? "Volta Almoço" : r.type;
+
+                          return (
+                            <div key={r.id} className="bg-slate-50/50 hover:bg-slate-50 p-4 rounded-xl border border-slate-100 transition flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+                              {/* Left column: Biometry thumbnail */}
+                              <div className="relative group shrink-0">
+                                <img src={r.photo_url} alt="Verified face scan" className="w-12 h-12 rounded-lg object-cover border border-slate-200" />
+                                <span className="absolute -bottom-1 -right-1 bg-green-500 text-white p-0.5 rounded-full border border-white text-[8px]" title="Biometria Validada">
+                                  ✓
+                                </span>
+                              </div>
+
+                              {/* Middle column: Info details */}
+                              <div className="flex-1 min-w-0 space-y-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${typeColors} capitalize`}>
+                                    {typeName}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 font-mono font-bold">
+                                    ID: {r.id.split("-")[1] || r.id}
+                                  </span>
+                                </div>
+                                
+                                <div className="text-[11px] font-semibold text-slate-700 flex items-center gap-1.5 flex-wrap">
+                                  <span>📅 {new Date(r.timestamp).toLocaleDateString("pt-BR")}</span>
+                                  <span className="text-slate-300">•</span>
+                                  <span className="text-slate-900 font-bold">⏰ {new Date(r.timestamp).toLocaleTimeString("pt-BR", {hour: "2-digit", minute: "2-digit", second: "2-digit"})}</span>
+                                </div>
+
+                                <p className="text-[10px] text-slate-400 truncate flex items-center gap-1">
+                                  <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                                  <span className="truncate" title={r.location.address}>{r.location.address || "Sem endereço cadastrado"}</span>
+                                </p>
+                              </div>
+
+                              {/* Right column: Action */}
+                              <button
+                                onClick={() => handleDownloadReceipt(r)}
+                                className="w-full sm:w-auto shrink-0 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-bold py-1.5 px-3 rounded-lg text-[10px] flex items-center justify-center gap-1.5 transition active:scale-95 shadow-sm"
+                                title="Baixar comprovante assinado em PDF"
+                              >
+                                <Download className="w-3.5 h-3.5 text-slate-500" />
+                                <span>PDF</span>
+                              </button>
+                            </div>
+                          );
+                        });
+                      })()}
                     </div>
                   </div>
 
@@ -2851,7 +3711,7 @@ As políticas padrões da **${userCompany?.name}** de reembolso cobrem até **R$
                     <div className="bg-slate-50 p-3 rounded-lg border border-slate-100 font-mono text-[10px] text-slate-500 space-y-1">
                       <div>COMPANY_ID: {currentUser.company_id}</div>
                       <div>USER_ID: {currentUser.id}</div>
-                      <div>GPS: {geolocation ? `${geolocation.lat}, ${geolocation.lng}` : "Aguardando GPS"}</div>
+                      <div>GPS: {geolocation ? `${geolocation.lat.toFixed(5)}, ${geolocation.lng.toFixed(5)}` : "Aguardando GPS"}</div>
                     </div>
                   </div>
                 </div>
@@ -2890,7 +3750,7 @@ As políticas padrões da **${userCompany?.name}** de reembolso cobrem até **R$
                       
                       <div className="divide-y divide-slate-100">
                         {companyUsers.map(u => (
-                          <div key={u.id} className="p-4 sm:p-5 flex flex-col sm:flex-row justify-between sm:items-center gap-4 hover:bg-slate-50/50 transition">
+                          <div key={u.id} className={`p-4 sm:p-5 flex flex-col sm:flex-row justify-between sm:items-center gap-4 hover:bg-slate-50/50 transition ${u.active === false ? "opacity-65 bg-slate-50/40" : ""}`}>
                             <div className="flex items-center gap-3">
                               <img src={u.avatar} alt={u.name} className="w-11 h-11 rounded-full object-cover border border-slate-200" />
                               <div>
@@ -2914,6 +3774,36 @@ As políticas padrões da **${userCompany?.name}** de reembolso cobrem até **R$
                             </div>
 
                             <div className="flex items-center gap-2.5">
+                              {/* Campo de Ativação / Inativação (On/Off Switch) */}
+                              <div className="flex items-center gap-1.5 bg-slate-100/70 px-2 py-1 rounded-lg border border-slate-200/50">
+                                <span className={`text-[9px] font-extrabold uppercase tracking-wider ${u.active !== false ? "text-emerald-600" : "text-slate-400"}`}>
+                                  {u.active !== false ? "Ativo" : "Inativo"}
+                                </span>
+                                {(currentUser.role === UserRole.HR_MANAGER || currentUser.role === UserRole.SUPER_ADMIN) ? (
+                                  <button
+                                    type="button"
+                                    disabled={u.id === currentUser.id}
+                                    onClick={() => {
+                                      const nextActive = u.active === false ? true : false;
+                                      setUsers(prev => prev.map(usr => usr.id === u.id ? { ...usr, active: nextActive } : usr));
+                                      setInviteSuccessMsg(`Colaborador "${u.name}" foi ${nextActive ? "ativado" : "inativado"} com sucesso!`);
+                                    }}
+                                    className={`relative inline-flex h-4.5 w-8 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                      u.id === currentUser.id ? "opacity-40 cursor-not-allowed" : ""
+                                    } ${u.active !== false ? "bg-emerald-500" : "bg-slate-300"}`}
+                                    title={u.id === currentUser.id ? "Você não pode inativar a si mesmo!" : `Clique para ${u.active !== false ? "inativar" : "ativar"}`}
+                                  >
+                                    <span
+                                      className={`pointer-events-none inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                                        u.active !== false ? "translate-x-3.5" : "translate-x-0"
+                                      }`}
+                                    />
+                                  </button>
+                                ) : (
+                                  <div className={`w-2 h-2 rounded-full ${u.active !== false ? "bg-emerald-500" : "bg-slate-300"}`} />
+                                )}
+                              </div>
+
                               {/* Display Badge count */}
                               <div className="flex items-center gap-1 bg-amber-50 text-amber-700 font-bold text-[10px] px-2 py-1 rounded-lg mr-2">
                                 <Award className="w-3.5 h-3.5 text-amber-600" /> {posts.filter(p=>p.badge_award?.recipient_id === u.id).length} Badge(s)
@@ -2950,6 +3840,8 @@ As políticas padrões da **${userCompany?.name}** de reembolso cobrem até **R$
                                         setEditUserHireDate(u.hire_date.split('T')[0]);
                                         setEditUserRole(u.role);
                                         setEditUserAvatar(u.avatar);
+                                        setEditUserBirthDate(u.birth_date || "");
+                                        setEditUserActive(u.active !== false);
                                         setDeletingUserId(null);
                                       }}
                                       className="p-1 hover:bg-slate-200 rounded text-slate-500 hover:text-[#0043FF] transition"
@@ -3295,8 +4187,24 @@ As políticas padrões da **${userCompany?.name}** de reembolso cobrem até **R$
                               </div>
                             </div>
 
+                            {/* Data de Nascimento */}
+                            <div>
+                              <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                                Data de Nascimento
+                              </label>
+                              <div className="relative">
+                                <input
+                                  type="date"
+                                  className="w-full text-xs border border-slate-200 rounded-xl pl-3.5 pr-10 py-2.5 focus:border-[#0043FF] focus:outline-none focus:ring-2 focus:ring-blue-100/50 bg-slate-50/50 hover:bg-white text-slate-800 font-medium transition"
+                                  value={editUserBirthDate}
+                                  onChange={(e) => setEditUserBirthDate(e.target.value)}
+                                />
+                                <Calendar className="w-4 h-4 text-slate-400 absolute right-3.5 top-3 pointer-events-none" />
+                              </div>
+                            </div>
+
                             {/* Perfil de Acesso (RBAC) */}
-                            <div className="md:col-span-2">
+                            <div>
                               <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
                                 Perfil de Acesso (RBAC)
                               </label>
@@ -3311,6 +4219,34 @@ As políticas padrões da **${userCompany?.name}** de reembolso cobrem até **R$
                                   <option value={UserRole.HR_MANAGER}>Gestor de RH</option>
                                 </select>
                                 <Shield className="w-4 h-4 text-slate-400 absolute right-3.5 top-3.5 pointer-events-none" />
+                              </div>
+                            </div>
+
+                            {/* Status da Conta (On/Off Toggle Switch) */}
+                            <div>
+                              <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                                Status do Usuário
+                              </label>
+                              <div className="flex items-center gap-3 bg-slate-50 border border-slate-200/50 rounded-xl px-4 py-2.5 h-[42px] transition">
+                                <span className={`text-xs font-bold ${editUserActive ? "text-emerald-600" : "text-slate-500"}`}>
+                                  {editUserActive ? "Conta Ativa" : "Conta Inativa"}
+                                </span>
+                                <button
+                                  type="button"
+                                  disabled={editingUserId === currentUser.id}
+                                  onClick={() => setEditUserActive(!editUserActive)}
+                                  className={`relative inline-flex h-5 w-10 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ml-auto ${
+                                    editingUserId === currentUser.id ? "opacity-50 cursor-not-allowed" : ""
+                                  } ${editUserActive ? "bg-emerald-500" : "bg-slate-300"}`}
+                                  title={editingUserId === currentUser.id ? "Você não pode inativar a si mesmo!" : "Clique para alterar status de ativação"}
+                                >
+                                  <span className="sr-only">Toggle Status</span>
+                                  <span
+                                    className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                                      editUserActive ? "translate-x-5" : "translate-x-0"
+                                    }`}
+                                  />
+                                </button>
                               </div>
                             </div>
                           </div>
@@ -3975,10 +4911,506 @@ As políticas padrões da **${userCompany?.name}** de reembolso cobrem até **R$
       </div>
 
       {/* --- FOOTER --- */}
-      <footer className="bg-slate-900 text-slate-400 text-center py-4 text-[11px] border-t border-slate-800 shrink-0">
+      <footer className="bg-slate-900 text-slate-400 text-center py-4 text-[11px] border-t border-slate-800 shrink-0 animate-fade-in relative z-10">
         <p>© 2026 Flow RH - Desenvolvido sob a infraestrutura da **Base44**. Todos os direitos reservados.</p>
-        <p className="mt-1 text-slate-600">Row Level Security (RLS) habilitada • Banco de dados local síncrono</p>
+        <p className="mt-1 text-slate-600 font-mono text-[9px]">Row Level Security (RLS) habilitada • Banco de dados local síncrono</p>
       </footer>
+
+      {/* --- MEU PERFIL MODAL --- */}
+      <AnimatePresence>
+        {showProfileModal && (
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-white rounded-3xl border border-slate-100 shadow-2xl max-w-lg w-full overflow-hidden text-slate-800 flex flex-col"
+            >
+              {/* Header Gradient */}
+              <div className={`px-6 py-8 bg-gradient-to-r ${
+                pageTheme === "emerald" ? "from-emerald-600 to-emerald-500" :
+                pageTheme === "amber" ? "from-amber-600 to-amber-500" :
+                pageTheme === "dark" ? "from-slate-800 to-slate-700" :
+                "from-blue-600 to-blue-500"
+              } text-white relative`}>
+                <button
+                  onClick={() => setShowProfileModal(false)}
+                  className="absolute top-4 right-4 p-1.5 bg-white/10 hover:bg-white/20 rounded-full text-white transition"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+
+                <div className="flex items-center gap-4">
+                  <img
+                    src={selfAvatar || currentUser.avatar}
+                    alt={currentUser.name}
+                    className="w-16 h-16 rounded-full object-cover border-2 border-white shadow-md"
+                  />
+                  <div>
+                    <h3 className="font-extrabold text-lg leading-tight">{currentUser.name}</h3>
+                    <p className="text-xs text-white/80 mt-0.5">{currentUser.email}</p>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      <span className="bg-white/20 text-white text-[9px] font-bold uppercase px-2 py-0.5 rounded-full">
+                        {currentUser.role === UserRole.SUPER_ADMIN ? "Super Admin" :
+                         currentUser.role === UserRole.HR_MANAGER ? "Gestor de RH" :
+                         currentUser.role === UserRole.SUPERVISOR ? "Supervisor" :
+                         "Colaborador"}
+                      </span>
+                      <span className="bg-black/10 text-white text-[9px] font-bold px-2 py-0.5 rounded-full">
+                        {activeCompany?.name}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Profile Grid Info */}
+              <div className="p-6 space-y-4 text-xs">
+                {selfSuccessMsg && (
+                  <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl p-3 text-center font-semibold text-[11px] animate-fade-in">
+                    🎉 {selfSuccessMsg}
+                  </div>
+                )}
+
+                {isEditingSelf ? (
+                  <form onSubmit={handleUpdateSelf} className="space-y-4">
+                    <div className="bg-slate-50 border border-slate-100/80 rounded-2xl p-4 space-y-3.5">
+                      <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 border-b border-slate-100 pb-2">
+                        <span>📝</span> Editar Informações Pessoais
+                      </h4>
+
+                      {/* Foto de Perfil Drag & Drop */}
+                      <div>
+                        <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                          Alterar Foto de Perfil
+                        </label>
+                        <div
+                          onDragOver={handleAvatarDragOver}
+                          onDragLeave={handleAvatarDragLeave}
+                          onDrop={handleAvatarDrop}
+                          className={`border-2 border-dashed rounded-xl p-4 transition text-center relative ${
+                            isDraggingAvatar
+                              ? "border-[#0043FF] bg-blue-50/20"
+                              : selfAvatarError
+                              ? "border-rose-300 bg-rose-50/10"
+                              : "border-slate-200 hover:border-slate-300 bg-white"
+                          }`}
+                        >
+                          <input
+                            type="file"
+                            accept="image/png, image/jpeg, image/jpg, image/webp, image/gif"
+                            onChange={(e) => {
+                              if (e.target.files && e.target.files[0]) {
+                                handleAvatarFile(e.target.files[0]);
+                              }
+                            }}
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                          />
+                          <div className="flex flex-col items-center justify-center space-y-1.5">
+                            <div className={`p-2 rounded-full ${
+                              selfAvatarError ? "bg-rose-50 text-rose-500" : "bg-slate-50 text-slate-400"
+                            }`}>
+                              <Camera className="w-5 h-5" />
+                            </div>
+                            <div className="text-slate-600 font-medium text-[11px]">
+                              Arraste e solte a imagem ou <span className="text-[#0043FF] hover:underline font-bold">clique para buscar</span>
+                            </div>
+                            <div className="text-slate-400 text-[9px] font-medium">
+                              Formatos aceitos: JPG, PNG, WEBP ou GIF (Máx. 5MB)
+                            </div>
+                          </div>
+                        </div>
+                        {selfAvatarError && (
+                          <p className="text-rose-500 text-[10px] font-bold mt-1.5 flex items-center gap-1 leading-normal">
+                            <span>⚠️</span> {selfAvatarError}
+                          </p>
+                        )}
+                        {selfAvatar && !selfAvatarError && (
+                          <div className="mt-2 flex items-center gap-2 bg-emerald-50 border border-emerald-100 p-2 rounded-lg">
+                            <span className="text-emerald-600 text-xs">📸</span>
+                            <span className="text-emerald-800 text-[10px] font-bold truncate max-w-[200px]">Nova imagem carregada com sucesso!</span>
+                            <button
+                              type="button"
+                              onClick={() => setSelfAvatar("")}
+                              className="text-rose-500 hover:text-rose-700 ml-auto text-[10px] font-bold uppercase tracking-wider"
+                            >
+                              Remover
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                          Nome Completo
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            required
+                            className="w-full text-xs border border-slate-200 rounded-xl pl-3.5 pr-10 py-2.5 focus:border-[#0043FF] focus:outline-none focus:ring-2 focus:ring-blue-100/50 bg-white text-slate-800 font-semibold transition"
+                            value={selfName}
+                            onChange={(e) => setSelfName(e.target.value)}
+                            placeholder="Seu nome"
+                          />
+                          <User className="w-4 h-4 text-slate-400 absolute right-3.5 top-3 pointer-events-none" />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                          E-mail Pessoal / Contato
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="email"
+                            required
+                            className="w-full text-xs border border-slate-200 rounded-xl pl-3.5 pr-10 py-2.5 focus:border-[#0043FF] focus:outline-none focus:ring-2 focus:ring-blue-100/50 bg-white text-slate-800 font-semibold transition"
+                            value={selfEmail}
+                            onChange={(e) => setSelfEmail(e.target.value)}
+                            placeholder="seuemail@provedor.com"
+                          />
+                          <Mail className="w-4 h-4 text-slate-400 absolute right-3.5 top-3 pointer-events-none" />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                          Data de Nascimento
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="date"
+                            required
+                            className="w-full text-xs border border-slate-200 rounded-xl pl-3.5 pr-10 py-2.5 focus:border-[#0043FF] focus:outline-none focus:ring-2 focus:ring-blue-100/50 bg-white text-slate-800 font-semibold transition"
+                            value={selfBirthDate}
+                            onChange={(e) => setSelfBirthDate(e.target.value)}
+                          />
+                          <Calendar className="w-4 h-4 text-slate-400 absolute right-3.5 top-3 pointer-events-none" />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                          Senha de Acesso
+                        </label>
+                        <div className="relative">
+                          <input
+                            type={showSelfPassword ? "text" : "password"}
+                            required
+                            className="w-full text-xs border border-slate-200 rounded-xl pl-3.5 pr-10 py-2.5 focus:border-[#0043FF] focus:outline-none focus:ring-2 focus:ring-blue-100/50 bg-white text-slate-800 font-semibold transition"
+                            value={selfPassword}
+                            onChange={(e) => setSelfPassword(e.target.value)}
+                            placeholder="Sua senha secreta"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowSelfPassword(!showSelfPassword)}
+                            className="absolute right-3.5 top-3 text-slate-400 hover:text-slate-600 transition"
+                          >
+                            <Lock className={`w-4 h-4 ${showSelfPassword ? "text-[#0043FF]" : ""}`} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Hierarchy restrictions - read-only fields */}
+                    <div className="bg-slate-100/60 border border-slate-200/50 rounded-2xl p-4 space-y-2.5">
+                      <div className="flex items-center justify-between border-b border-slate-200/50 pb-1.5">
+                        <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                          <span>🛡️</span> Dados Corporativos Protegidos
+                        </h4>
+                        <span className="text-[9px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider select-none">
+                          Hierarquia Ativa
+                        </span>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-3 text-[11px]">
+                        <div>
+                          <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider">Setor / Área</span>
+                          <span className="font-semibold text-slate-600">{currentUser.department}</span>
+                        </div>
+                        <div>
+                          <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider">Admissão</span>
+                          <span className="font-semibold text-slate-600">{new Date(currentUser.hire_date).toLocaleDateString("pt-BR")}</span>
+                        </div>
+                        <div className="col-span-2">
+                          <span className="text-[9px] text-slate-500 block leading-normal">
+                            ⚠️ Por motivos de compliance e segurança multi-tenant, alterações em cargos, permissões RBAC e datas de contratação devem ser solicitadas diretamente ao <strong>Gestor de RH</strong> ou <strong>Super Admin</strong>.
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Actions buttons for edit mode */}
+                    <div className="flex justify-end gap-2.5 pt-4 border-t border-slate-100">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsEditingSelf(false);
+                          setSelfName(currentUser.name);
+                          setSelfEmail(currentUser.email);
+                          setSelfBirthDate(currentUser.birth_date || "");
+                        }}
+                        className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl transition"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        className={`px-5 py-2.5 text-white font-bold rounded-xl transition shadow-md ${
+                          pageTheme === "emerald" ? "bg-emerald-600 hover:bg-emerald-700" :
+                          pageTheme === "amber" ? "bg-amber-600 hover:bg-amber-700" :
+                          pageTheme === "dark" ? "bg-slate-800 hover:bg-slate-700" :
+                          "bg-[#0043FF] hover:bg-blue-700"
+                        }`}
+                      >
+                        Salvar Informações
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-slate-50/50 p-3 rounded-xl border border-slate-100/50">
+                        <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Setor / Área</span>
+                        <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                          <Briefcase className="w-4 h-4 text-slate-400" />
+                          <span>{currentUser.department}</span>
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-50/50 p-3 rounded-xl border border-slate-100/50">
+                        <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Admissão</span>
+                        <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                          <Calendar className="w-4 h-4 text-slate-400" />
+                          <span>{new Date(currentUser.hire_date).toLocaleDateString("pt-BR")}</span>
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-50/50 p-3 rounded-xl border border-slate-100/50">
+                        <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Nível de Acesso</span>
+                        <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                          <Shield className="w-4 h-4 text-slate-400" />
+                          <span>RBAC Ativo</span>
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-50/50 p-3 rounded-xl border border-slate-100/50">
+                        <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Reconhecimentos</span>
+                        <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                          <Award className="w-4 h-4 text-amber-500" />
+                          <span>{posts.filter(p => p.badge_award?.recipient_id === currentUser.id).length} Badge(s)</span>
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-50/50 p-3 rounded-xl border border-slate-100/50">
+                        <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Data de Nascimento</span>
+                        <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                          <span className="text-sm">🎂</span>
+                          <span>{currentUser.birth_date ? new Date(currentUser.birth_date + "T00:00:00").toLocaleDateString("pt-BR") : "Não informada"}</span>
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-50/50 p-3 rounded-xl border border-slate-100/50 truncate">
+                        <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">E-mail de Contato</span>
+                        <div className="font-bold text-slate-800 flex items-center gap-1.5 truncate">
+                          <Mail className="w-4 h-4 text-slate-400 animate-pulse" />
+                          <span className="truncate">{currentUser.email}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Recognition badges received detail */}
+                    <div className="bg-amber-50/40 border border-amber-100 rounded-2xl p-4">
+                      <h4 className="text-[10px] font-bold text-amber-800 uppercase tracking-wider mb-2 flex items-center gap-1">
+                        <Award className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Badges de Conquista Recentes</span>
+                      </h4>
+                      {posts.filter(p => p.badge_award?.recipient_id === currentUser.id).length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {posts.filter(p => p.badge_award?.recipient_id === currentUser.id).map((p, idx) => (
+                            <div key={idx} className="bg-white/80 border border-amber-100/50 rounded-xl px-2.5 py-1.5 text-[10px] font-semibold text-amber-900 flex items-center gap-1.5 shadow-sm" title={p.content}>
+                              <span>{p.badge_award?.icon}</span>
+                              <span>{p.badge_award?.name}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-[10px] text-amber-700 leading-normal font-medium">
+                          Você ainda não recebeu badges de reconhecimento nesta empresa. Apoie o time e colabore para ser reconhecido no mural!
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Privacy / Security Notice */}
+                    <div className="bg-blue-50/40 border border-blue-100 p-3.5 rounded-2xl text-[10px] text-blue-800 leading-relaxed">
+                      <p className="font-bold text-blue-900">🔒 Segurança de Dados Civis Conforme LGPD</p>
+                      <p className="text-blue-700/80 mt-0.5">
+                        Este painel opera sob as diretrizes de Row Level Security (RLS) integradas ao Supabase. Nenhum dado do seu perfil profissional é exposto a outros tenants (empresas) ou acessos não autorizados.
+                      </p>
+                    </div>
+
+                    {/* Actions buttons */}
+                    <div className="flex justify-end gap-2.5 pt-4 border-t border-slate-100">
+                      <button
+                        onClick={() => setShowProfileModal(false)}
+                        className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl transition"
+                      >
+                        Fechar Perfil
+                      </button>
+                      <button
+                        onClick={() => setIsEditingSelf(true)}
+                        className={`px-5 py-2.5 text-white font-bold rounded-xl transition shadow-sm ${
+                          pageTheme === "emerald" ? "bg-emerald-600 hover:bg-emerald-700" :
+                          pageTheme === "amber" ? "bg-amber-600 hover:bg-amber-700" :
+                          pageTheme === "dark" ? "bg-slate-800 hover:bg-slate-700" :
+                          "bg-[#0043FF] hover:bg-blue-700"
+                        }`}
+                      >
+                        Editar Informações
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* --- SUPORTE TÉCNICO MODAL --- */}
+      <AnimatePresence>
+        {showSupportModal && (
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-white rounded-3xl border border-slate-100 shadow-2xl max-w-lg w-full overflow-hidden text-slate-800 flex flex-col"
+            >
+              {/* Modal Header */}
+              <div className="px-6 py-5 bg-gradient-to-r from-slate-50 to-white border-b border-slate-100 flex items-center justify-between">
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-sm flex items-center gap-2">
+                    <span className="text-[#0043FF] text-base">🛠️</span> Suporte Técnico Integrado
+                  </h3>
+                  <p className="text-[10px] text-slate-500 mt-0.5 font-medium">
+                    Precisa de ajuda? Abra um chamado de suporte ou envie sua dúvida para nosso time.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowSupportModal(false)}
+                  className="p-1.5 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-600 transition"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {supportSuccess ? (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="p-8 text-center space-y-4"
+                >
+                  <div className="w-16 h-16 bg-green-50 text-green-500 rounded-full border border-green-100 flex items-center justify-center mx-auto text-2xl shadow-sm">
+                    ✓
+                  </div>
+                  <div>
+                    <h4 className="font-extrabold text-slate-800 text-base">Chamado Aberto com Sucesso!</h4>
+                    <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto leading-relaxed">
+                      Seu protocolo de suporte é <span className="font-bold text-slate-700">#FLOW-{Math.floor(100000 + Math.random() * 900000)}</span>.
+                      Enviamos os detalhes do chamado para <span className="font-semibold text-slate-600">{currentUser.email}</span>.
+                    </p>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 max-w-xs mx-auto text-[10px] text-slate-500 leading-normal font-medium">
+                    ⏱️ Tempo estimado de atendimento: <span className="text-blue-600 font-bold">12 minutos</span> (Buddy ativo).
+                  </div>
+                  <button
+                    onClick={() => setShowSupportModal(false)}
+                    className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition"
+                  >
+                    Fechar Janela
+                  </button>
+                </motion.div>
+              ) : (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!supportMessage.trim()) return;
+                    setSupportSuccess(true);
+                    setSupportMessage("");
+                  }}
+                  className="p-6 space-y-4"
+                >
+                  {/* Category Selection */}
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                      Categoria do Atendimento
+                    </label>
+                    <select
+                      className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-slate-50/50 hover:bg-white focus:border-[#0043FF] focus:outline-none focus:ring-2 focus:ring-blue-100/50 text-slate-800 font-medium transition"
+                      value={supportCategory}
+                      onChange={(e) => setSupportCategory(e.target.value)}
+                    >
+                      <option value="dúvida">Dúvida Operacional / Sistema</option>
+                      <option value="problema">Problema Técnico / Bug</option>
+                      <option value="admissão">Dificuldade com Admissão Digital</option>
+                      <option value="recurso">Solicitação de Nova Funcionalidade</option>
+                    </select>
+                  </div>
+
+                  {/* Support Details */}
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                      Descreva seu Problema ou Dúvida
+                    </label>
+                    <textarea
+                      required
+                      className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-slate-50/50 hover:bg-white focus:border-[#0043FF] focus:outline-none focus:ring-2 focus:ring-blue-100/50 text-slate-800 font-medium transition h-32 resize-none"
+                      placeholder="Descreva detalhadamente o que ocorreu ou qual sua dúvida operacional..."
+                      value={supportMessage}
+                      onChange={(e) => setSupportMessage(e.target.value)}
+                    />
+                  </div>
+
+                  {/* Helpful Resources panel inside support */}
+                  <div className="bg-blue-50/30 border border-blue-100/50 rounded-2xl p-3.5 space-y-1.5 text-[10px] leading-normal text-blue-800 font-medium">
+                    <div className="font-bold text-blue-900 flex items-center gap-1">
+                      <span>💡</span> Recursos Rápidos de Ajuda
+                    </div>
+                    <p className="text-blue-700/80 leading-relaxed">
+                      Dica: Se estiver com dúvidas sobre marcação de ponto, lembre-se de autorizar a câmera no navegador. Para dúvidas sobre o PDI ou Onboarding, consulte o canal do Buddy da sua empresa.
+                    </p>
+                  </div>
+
+                  {/* Form actions */}
+                  <div className="flex justify-end gap-2.5 pt-4 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setShowSupportModal(false)}
+                      className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-xl transition"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      className={`px-5 py-2.5 text-white font-bold text-xs rounded-xl transition shadow-md shadow-blue-100 hover:shadow-lg ${
+                        pageTheme === "emerald" ? "bg-emerald-600 hover:bg-emerald-700" :
+                        pageTheme === "amber" ? "bg-amber-600 hover:bg-amber-700" :
+                        pageTheme === "dark" ? "bg-slate-800 hover:bg-slate-700" :
+                        "bg-[#0043FF] hover:bg-blue-700"
+                      }`}
+                    >
+                      Enviar Chamado
+                    </button>
+                  </div>
+                </form>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

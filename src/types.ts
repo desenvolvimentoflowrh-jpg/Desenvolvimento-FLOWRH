@@ -16,6 +16,9 @@ export interface UserProfile {
   avatar: string;
   points_balance: number; // hours balance (positive or negative)
   active_streak: number; // consecutive onboarding or point record days
+  birth_date?: string; // YYYY-MM-DD
+  active?: boolean; // toggle to active or inactive user
+  password?: string; // password for login authentication
 }
 
 export interface Company {

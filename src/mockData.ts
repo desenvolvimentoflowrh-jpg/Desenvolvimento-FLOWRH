@@ -26,7 +26,8 @@ export const INITIAL_USERS: UserProfile[] = [
     hire_date: "2024-03-15",
     avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
     points_balance: 8.5,
-    active_streak: 5
+    active_streak: 5,
+    birth_date: "1995-05-12"
   },
   {
     id: "user-2",
@@ -38,7 +39,8 @@ export const INITIAL_USERS: UserProfile[] = [
     hire_date: "2025-01-10",
     avatar: "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150&auto=format&fit=crop&q=80",
     points_balance: -2.0,
-    active_streak: 12
+    active_streak: 12,
+    birth_date: "1998-08-24"
   },
   {
     id: "user-3",
@@ -50,7 +52,8 @@ export const INITIAL_USERS: UserProfile[] = [
     hire_date: "2024-09-01",
     avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
     points_balance: 4.0,
-    active_streak: 8
+    active_streak: 8,
+    birth_date: "1997-11-03"
   },
   {
     id: "user-4",
@@ -62,7 +65,8 @@ export const INITIAL_USERS: UserProfile[] = [
     hire_date: "2022-05-20",
     avatar: "https://images.unsplash.com/photo-1560250097-0b93528c311a?w=150&auto=format&fit=crop&q=80",
     points_balance: 14.5,
-    active_streak: 3
+    active_streak: 3,
+    birth_date: "1988-02-15"
   },
   {
     id: "user-6",
@@ -74,7 +78,8 @@ export const INITIAL_USERS: UserProfile[] = [
     hire_date: "2023-04-10",
     avatar: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80",
     points_balance: 6.0,
-    active_streak: 15
+    active_streak: 15,
+    birth_date: "1991-07-30"
   },
   // Aero RH solutions users
   {
@@ -87,7 +92,8 @@ export const INITIAL_USERS: UserProfile[] = [
     hire_date: "2023-11-01",
     avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&auto=format&fit=crop&q=80",
     points_balance: 2.0,
-    active_streak: 2
+    active_streak: 2,
+    birth_date: "1985-09-18"
   }
 ];
 
