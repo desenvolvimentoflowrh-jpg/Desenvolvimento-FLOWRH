@@ -1,6 +1,8 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
 
+@variant dark (&:where(.dark, .dark *));
+
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
@@ -11,102 +13,202 @@
   100% { transform: translateX(100%); }
 }
 
-/* --- Frosted Glass Theme Core Styles --- */
+/* --- Global Theme Variables --- */
 
-/* Body/Root Background - premium slate fluid gradient matching design */
-body, html, #root, .min-h-screen {
-  background: linear-gradient(135deg, #f8fafc 0%, #cbd5e1 50%, #e2e8f0 100%) !important;
+:root, [data-theme="blue"] {
+  --primary-color: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-bg-light: #eff6ff;
+  --primary-border-light: #bfdbfe;
+  --header-bg: #2563eb;
+  --sidebar-active-bg: #2563eb;
 }
 
-/* Base card glassmorphism */
-.bg-white.rounded-2xl {
-  background: rgba(255, 255, 255, 0.65) !important;
-  backdrop-filter: blur(24px) !important;
-  -webkit-backdrop-filter: blur(24px) !important;
-  border: 1px solid rgba(255, 255, 255, 0.7) !important;
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.04) !important;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+[data-theme="emerald"] {
+  --primary-color: #059669;
+  --primary-hover: #047857;
+  --primary-bg-light: #ecfdf5;
+  --primary-border-light: #a7f3d0;
+  --header-bg: #059669;
+  --sidebar-active-bg: #059669;
 }
 
-/* Cards hover transition for a high-end feel */
-.bg-white.rounded-2xl:hover {
-  background: rgba(255, 255, 255, 0.72) !important;
-  border-color: rgba(255, 255, 255, 0.9) !important;
-  box-shadow: 0 12px 40px 0 rgba(0, 67, 255, 0.08) !important;
-  transform: translateY(-2px);
+[data-theme="amber"] {
+  --primary-color: #ea580c;
+  --primary-hover: #c2410c;
+  --primary-bg-light: #fff7ed;
+  --primary-border-light: #fed7aa;
+  --header-bg: #ea580c;
+  --sidebar-active-bg: #ea580c;
 }
 
-/* Nested secondary boxes inside cards (e.g. quick prompts, logs) */
-.bg-slate-50 {
-  background: rgba(255, 255, 255, 0.35) !important;
-  backdrop-filter: blur(10px) !important;
-  -webkit-backdrop-filter: blur(10px) !important;
-  border: 1px solid rgba(255, 255, 255, 0.4) !important;
+html.dark, [data-theme="dark"] {
+  --primary-color: #3b82f6;
+  --primary-hover: #60a5fa;
+  --primary-bg-light: rgba(59, 130, 246, 0.15);
+  --primary-border-light: rgba(59, 130, 246, 0.3);
+  --header-bg: #0f172a;
+  --sidebar-active-bg: #3b82f6;
 }
 
-/* Nested colored chips, tags, and small info boxes */
-.bg-purple-50\/50, .bg-teal-50, .bg-indigo-50, .bg-pink-50, .bg-amber-50, .bg-blue-50, .bg-cyan-50 {
-  background: rgba(255, 255, 255, 0.45) !important;
+/* --- Page & Root Styling --- */
+
+body, html, #root {
+  transition: background-color 0.3s ease, color 0.3s ease;
+  min-height: 100vh;
+}
+
+/* Light mode background - Soft neutral background */
+html:not(.dark) body, html:not(.dark) #root, html:not(.dark) .min-h-screen {
+  background-color: #f1f5f9 !important;
+  background: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+
+/* Dark mode background */
+html.dark body, html.dark #root, html.dark .min-h-screen, html.dark .bg-slate-50 {
+  background-color: #090d16 !important;
+  background: #090d16 !important;
+  color: #f8fafc !important;
+}
+
+/* Dynamic Primary Color Utility Overrides */
+.bg-\[\#0043FF\], .bg-blue-600 {
+  background-color: var(--primary-color) !important;
+}
+
+.hover\:bg-blue-700:hover, .hover\:bg-blue-800:hover {
+  background-color: var(--primary-hover) !important;
+}
+
+.text-\[\#0043FF\], .text-blue-600 {
+  color: var(--primary-color) !important;
+}
+
+.border-\[\#0043FF\], .border-blue-600 {
+  border-color: var(--primary-color) !important;
+}
+
+.bg-blue-50, .bg-blue-50\/50 {
+  background-color: var(--primary-bg-light) !important;
+}
+
+.border-blue-100, .border-blue-200 {
+  border-color: var(--primary-border-light) !important;
+}
+
+.text-blue-700 {
+  color: var(--primary-color) !important;
+}
+
+/* --- Solid Clean White Cards & Modals - Light Mode --- */
+html:not(.dark) .bg-white,
+html:not(.dark) .modal-container,
+html:not(.dark) [role="dialog"] {
+  background-color: #ffffff !important;
+  background: #ffffff !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-color: #e2e8f0 !important;
+  color: #0f172a !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05) !important;
+}
+
+/* Light Mode Form Controls (Inputs, Selects, Textareas) - Solid White with Clear Dark Text */
+html:not(.dark) input,
+html:not(.dark) select,
+html:not(.dark) textarea {
+  background-color: #ffffff !important;
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+html:not(.dark) input:focus,
+html:not(.dark) select:focus,
+html:not(.dark) textarea:focus {
+  background-color: #ffffff !important;
+  border-color: var(--primary-color, #2563eb) !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15) !important;
+  outline: none !important;
+}
+
+html:not(.dark) input::placeholder,
+html:not(.dark) textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* Glassmorphism Cards - Dark Mode */
+html.dark .bg-white, 
+html.dark .bg-white.rounded-2xl, 
+html.dark .bg-white.rounded-3xl, 
+html.dark .bg-slate-50\/80 {
+  background: #0f172a !important;
   backdrop-filter: blur(12px) !important;
   -webkit-backdrop-filter: blur(12px) !important;
-  border: 1px solid rgba(255, 255, 255, 0.5) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3) !important;
+  color: #f8fafc !important;
 }
 
-/* Ensure white background textareas, inputs and select boxes inside glass cards remain functional and clear */
-.bg-white.rounded-lg, .bg-white.rounded-xl, select.bg-white, input.bg-white, textarea.bg-white {
-  background: rgba(255, 255, 255, 0.8) !important;
-  backdrop-filter: blur(8px) !important;
-  -webkit-backdrop-filter: blur(8px) !important;
-  border: 1px solid rgba(255, 255, 255, 0.9) !important;
-  transition: all 0.2s ease;
+/* Text Overrides for Dark Mode */
+html.dark .text-slate-800, 
+html.dark .text-slate-900, 
+html.dark .text-slate-700 {
+  color: #f1f5f9 !important;
 }
 
-.bg-white.rounded-lg:focus, .bg-white.rounded-xl:focus, select.bg-white:focus, input.bg-white:focus, textarea.bg-white:focus {
-  background: rgba(255, 255, 255, 0.95) !important;
-  border-color: #0043FF !important;
+html.dark .text-slate-600, 
+html.dark .text-slate-500, 
+html.dark .text-slate-400 {
+  color: #94a3b8 !important;
 }
 
-/* Header glassmorphism */
+/* Nested Containers in Dark Mode */
+html.dark .bg-slate-50 {
+  background: rgba(30, 41, 59, 0.7) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+html.dark .border-slate-100, 
+html.dark .border-slate-200 {
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Inputs / Selects in Dark Mode */
+html.dark input, 
+html.dark select, 
+html.dark textarea {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+html.dark input::placeholder, 
+html.dark textarea::placeholder {
+  color: #64748b !important;
+}
+
+/* Header Styling */
 header {
-  background: rgba(0, 67, 255, 0.82) !important;
-  backdrop-filter: blur(16px) !important;
-  -webkit-backdrop-filter: blur(16px) !important;
+  background: var(--header-bg) !important;
   border-bottom: 1px solid rgba(255, 255, 255, 0.12) !important;
+  transition: background-color 0.3s ease;
 }
 
-/* Left Sidebar glassmorphism - thin, frosted Slate or Corporate Blue */
-div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > aside:nth-of-type(1) {
-  background: linear-gradient(180deg, rgba(10, 18, 40, 0.94) 0%, rgba(3, 7, 20, 0.97) 100%) !important;
-  backdrop-filter: blur(24px) !important;
-  -webkit-backdrop-filter: blur(24px) !important;
-  border-right: 1.5px solid rgba(0, 67, 255, 0.25) !important;
-  box-shadow: 4px 0 24px rgba(0, 67, 255, 0.08) !important;
-  transition: all 0.3s ease;
+/* Sidebar styling in Dark Mode */
+html.dark aside {
+  background: #090d16 !important;
+  border-right-color: rgba(255, 255, 255, 0.08) !important;
 }
 
-/* Simulation banner glassmorphism */
-.bg-amber-500 {
-  background: rgba(245, 158, 11, 0.82) !important;
-  backdrop-filter: blur(16px) !important;
-  -webkit-backdrop-filter: blur(16px) !important;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
-}
-
-/* Footer glassmorphism */
-footer {
-  background: rgba(15, 23, 42, 0.85) !important;
-  backdrop-filter: blur(16px) !important;
-  -webkit-backdrop-filter: blur(16px) !important;
-  border-top: 1px solid rgba(255, 255, 255, 0.06) !important;
-}
-
-/* Active chat panel list overlay */
+/* Custom Scrollbar */
 .overflow-y-auto {
   scrollbar-width: thin;
   scrollbar-color: rgba(0, 0, 0, 0.1) transparent;
 }
 
-/* Falling Swirl Snowflakes animation */
+/* Falling Swirl Animation */
 @keyframes fall-and-sway {
   0% {
     transform: translateY(-8vh) translateX(0) rotate(0deg);
@@ -133,46 +235,6 @@ footer {
   left: var(--left-pos, 50%);
   width: var(--swirl-size, 24px);
   height: var(--swirl-size, 24px);
-  color: #213af6 !important;
+  color: var(--primary-color) !important;
   will-change: transform, opacity;
 }
-
-/* --- Theme Overrides --- */
-
-/* Emerald Theme */
-[data-theme="emerald"] {
-  --theme-primary: #059669;
-}
-[data-theme="emerald"] body, [data-theme="emerald"] html, [data-theme="emerald"] #root, [data-theme="emerald"] .min-h-screen {
-  background: linear-gradient(135deg, #f0fdf4 0%, #bbf7d0 50%, #d1fae5 100%) !important;
-}
-[data-theme="emerald"] header {
-  background: rgba(5, 150, 105, 0.82) !important;
-}
-
-/* Amber Theme */
-[data-theme="amber"] {
-  --theme-primary: #d97706;
-}
-[data-theme="amber"] body, [data-theme="amber"] html, [data-theme="amber"] #root, [data-theme="amber"] .min-h-screen {
-  background: linear-gradient(135deg, #fffbeb 0%, #fde68a 50%, #fef3c7 100%) !important;
-}
-[data-theme="amber"] header {
-  background: rgba(217, 119, 6, 0.82) !important;
-}
-
-/* Dark Theme */
-[data-theme="dark"] {
-  --theme-primary: #1e293b;
-}
-[data-theme="dark"] body, [data-theme="dark"] html, [data-theme="dark"] #root, [data-theme="dark"] .min-h-screen {
-  background: #222365 !important;
-}
-[data-theme="dark"] div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) {
-  background-color: #222365 !important;
-}
-[data-theme="dark"] header {
-  background: rgba(15, 23, 42, 0.94) !important;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
-}
-

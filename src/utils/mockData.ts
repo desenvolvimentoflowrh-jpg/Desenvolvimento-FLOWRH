@@ -1,4 +1,4 @@
-import { Company, UserProfile, UserRole, Invitation, Training, TimeRecord, Post } from "./types";
+import { Company, UserProfile, UserRole, Invitation, Training, TimeRecord, Post } from "../types";
 
 export const INITIAL_COMPANIES: Company[] = [
   {

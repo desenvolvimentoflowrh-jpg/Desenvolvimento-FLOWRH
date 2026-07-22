@@ -21,18 +21,23 @@ export interface UserProfile {
   password?: string; // password for login authentication
 }
 
+// Alias requested in domain requirements
+export type Funcionario = UserProfile;
+
 export interface Company {
   id: string;
   name: string;
   segment: string;
   logo_url: string;
+  domain?: string;
+  created_at?: string;
 }
 
 export interface Invitation {
   id: string;
   email: string;
   company_id: string;
-  role: UserRole;
+  role?: UserRole;
   status: "pending" | "accepted" | "cancelled";
   invited_by: string; // user name who invited
   sent_at: string;
@@ -44,13 +49,23 @@ export interface TimeRecord {
   user_name: string;
   company_id: string;
   timestamp: string;
-  photo_url: string; // base64 or placeholder image
-  location: {
+  photo_url?: string;
+  face_photo?: string;
+  location: string | {
     lat: number;
     lng: number;
     address?: string;
   };
   type: "entrada" | "almoco_ida" | "almoco_volta" | "saida";
+  status?: "approved" | "pending";
+}
+
+export interface Goal {
+  id: string;
+  user_id: string;
+  title: string;
+  description: string;
+  progress: number;
 }
 
 export interface Comment {
@@ -106,4 +121,15 @@ export interface Training {
   status: "not_started" | "in_progress" | "completed";
   due_date: string;
   progress: number; // 0 to 100
+}
+
+export interface Holerite {
+  id: string;
+  user_id: string;
+  month: string;
+  year: number;
+  gross_salary: number;
+  net_salary: number;
+  pdf_url?: string;
+  status: "disponivel" | "pendente";
 }
