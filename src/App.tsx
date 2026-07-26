@@ -113,6 +113,9 @@ export function App() {
         currentUser={currentUser}
         companies={companies}
         activeCompanyId={activeCompany.id}
+        users={users}
+        posts={posts}
+        onNavigateTab={(tab) => setCurrentTab(tab)}
         onSwitchCompany={(id) => setLoginCompanyId(id)}
         onSelectCompany={(id) => setLoginCompanyId(id)}
         searchQuery={searchQuery}

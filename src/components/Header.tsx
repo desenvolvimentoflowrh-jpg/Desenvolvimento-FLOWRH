@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
@@ -9,15 +9,28 @@ import {
   HelpCircle,
   LogOut,
   RefreshCw,
-  Building
+  Building,
+  LayoutDashboard,
+  Megaphone,
+  Clock,
+  Users,
+  Target,
+  GraduationCap,
+  Bot,
+  ShieldCheck,
+  ArrowRight
 } from "lucide-react";
-import { UserProfile, Company, UserRole } from "../types";
+import { UserProfile, Company, UserRole, Post } from "../types";
 import { FlowRhLogo } from "./FlowRhLogo";
+import { getTimeAgo } from "../utils/formatters";
 
 interface HeaderProps {
   currentUser: UserProfile;
   companies: Company[];
   activeCompanyId: string;
+  users?: UserProfile[];
+  posts?: Post[];
+  onNavigateTab?: (tab: string) => void;
   onSwitchCompany?: (id: string) => void;
   onSelectCompany?: (id: string) => void;
   searchQuery?: string;
@@ -32,10 +45,81 @@ interface HeaderProps {
   onResetDatabase?: () => void;
 }
 
+const SYSTEM_MODULES = [
+  {
+    id: "dashboard",
+    label: "Dashboard Principal",
+    desc: "Visão geral, métricas e atalhos rápidos",
+    icon: LayoutDashboard,
+    tab: "dashboard",
+    keywords: ["dashboard", "metricas", "resumo", "inicio", "home", "indicadores"]
+  },
+  {
+    id: "mural",
+    label: "Mural & Avisos Corporativos",
+    desc: "Comunicados, enquetes, avisos e feed da empresa",
+    icon: Megaphone,
+    tab: "mural",
+    keywords: ["mural", "avisos", "comunicados", "feed", "posts", "noticias", "fixados"]
+  },
+  {
+    id: "ponto",
+    label: "Registro de Ponto & Holerites",
+    desc: "Bater ponto, holerites, espelho de ponto e comprovantes",
+    icon: Clock,
+    tab: "ponto",
+    keywords: ["ponto", "relogio", "bater ponto", "holerite", "recibo", "pagamento", "salario", "cartao de ponto"]
+  },
+  {
+    id: "funcionarios",
+    label: "Gestão de Funcionários & Equipe",
+    desc: "Diretório de colaboradores, cargos e departamentos",
+    icon: Users,
+    tab: "funcionarios",
+    keywords: ["funcionarios", "equipe", "time", "colaboradores", "pessoas", "rh", "organograma"]
+  },
+  {
+    id: "pdi",
+    label: "Meu PDI - Plano de Desenvolvimento",
+    desc: "Planos de carreira, metas e avaliações",
+    icon: Target,
+    tab: "pdi",
+    keywords: ["pdi", "plano de desenvolvimento", "metas", "carreira", "desempenho", "objetivos"]
+  },
+  {
+    id: "onboarding",
+    label: "Treinamentos & Onboarding",
+    desc: "Cursos de capacitação, trilhas e integração",
+    icon: GraduationCap,
+    tab: "onboarding",
+    keywords: ["treinamentos", "cursos", "onboarding", "capacitacao", "trilhas", "aulas"]
+  },
+  {
+    id: "flow_ai",
+    label: "Flow AI - Assistente Inteligente",
+    desc: "IA para dúvidas sobre CLT, políticas internas e RH",
+    icon: Bot,
+    tab: "flow_ai",
+    keywords: ["flow ai", "ia", "chat", "inteligencia artificial", "ajuda", "duvidas", "clt"]
+  },
+  {
+    id: "super_admin",
+    label: "Painel SuperAdmin",
+    desc: "Gestão de empresas, logs e permissões globais",
+    icon: ShieldCheck,
+    tab: "super_admin",
+    keywords: ["admin", "superadmin", "empresas", "tenants", "configuracoes"],
+    roleRequired: UserRole.SUPER_ADMIN
+  }
+];
+
 export const Header: React.FC<HeaderProps> = ({
   currentUser,
   companies,
   activeCompanyId,
+  users = [],
+  posts = [],
+  onNavigateTab,
   onSwitchCompany,
   onSelectCompany,
   searchQuery = "",
@@ -53,11 +137,95 @@ export const Header: React.FC<HeaderProps> = ({
   }
 }) => {
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
-  const activeCompany = companies.find(c => c.id === activeCompanyId) || companies[0];
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+
+  const inputRef = useRef<HTMLInputElement>(null);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+
+  const activeCompany = companies.find((c) => c.id === activeCompanyId) || companies[0];
 
   const handleSwitchCompany = onSwitchCompany || onSelectCompany || (() => {});
   const handleOpenProfile = onOpenProfileModal || onOpenSelfProfile || (() => {});
   const handleOpenSupport = onOpenSupportModal || onOpenSupport || (() => {});
+
+  // Keyboard shortcut listener (Ctrl+K or Cmd+K) and Escape
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        inputRef.current?.focus();
+        setIsSearchFocused(true);
+      }
+      if (e.key === "Escape") {
+        setIsSearchFocused(false);
+        inputRef.current?.blur();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  // Click outside listener
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        searchContainerRef.current &&
+        !searchContainerRef.current.contains(e.target as Node)
+      ) {
+        setIsSearchFocused(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Search results categorization
+  const cleanQuery = searchQuery.trim().toLowerCase();
+  const showDropdown = isSearchFocused && cleanQuery.length >= 2;
+
+  const matchingModules = SYSTEM_MODULES.filter((mod) => {
+    if (mod.roleRequired && currentUser.role !== mod.roleRequired) return false;
+    return (
+      mod.label.toLowerCase().includes(cleanQuery) ||
+      mod.desc.toLowerCase().includes(cleanQuery) ||
+      mod.keywords.some((k) => k.includes(cleanQuery))
+    );
+  });
+
+  const companyUsers = users.filter((u) => u.company_id === activeCompanyId);
+  const matchingUsers = companyUsers
+    .filter(
+      (u) =>
+        u.name.toLowerCase().includes(cleanQuery) ||
+        u.email.toLowerCase().includes(cleanQuery) ||
+        u.department.toLowerCase().includes(cleanQuery) ||
+        u.role.toLowerCase().includes(cleanQuery)
+    )
+    .slice(0, 4);
+
+  const companyPosts = posts.filter((p) => p.company_id === activeCompanyId);
+  const matchingPosts = companyPosts
+    .filter(
+      (p) =>
+        p.content.toLowerCase().includes(cleanQuery) ||
+        p.category.toLowerCase().includes(cleanQuery) ||
+        p.user_name.toLowerCase().includes(cleanQuery)
+    )
+    .slice(0, 4);
+
+  const totalResultsCount =
+    matchingModules.length + matchingUsers.length + matchingPosts.length;
+
+  const handleSelectResult = (tabName: string) => {
+    if (onNavigateTab) {
+      onNavigateTab(tabName);
+    }
+    setSearchQuery("");
+    setIsSearchFocused(false);
+    inputRef.current?.blur();
+  };
 
   return (
     <>
@@ -94,21 +262,173 @@ export const Header: React.FC<HeaderProps> = ({
           <FlowRhLogo size="text-2xl" textColor="text-white" iconSize="h-8" />
         </div>
 
-        {/* Global Search */}
-        <div className="hidden md:flex items-center bg-white/10 hover:bg-white/15 focus-within:bg-white focus-within:text-slate-900 rounded-full px-4 py-1.5 w-96 transition duration-200">
-          <Search className="w-4 h-4 mr-2 opacity-70" />
-          <input
-            type="text"
-            placeholder="Buscar avisos, colegas de equipe..."
-            className="bg-transparent border-none outline-none w-full text-sm placeholder-white/60 focus:placeholder-slate-400"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-          {searchQuery && (
-            <button onClick={() => setSearchQuery("")}>
-              <X className="w-4 h-4 opacity-70 hover:opacity-100" />
-            </button>
-          )}
+        {/* Global Search Component */}
+        <div ref={searchContainerRef} className="relative w-full max-w-md hidden md:block">
+          <div className="bg-white text-slate-900 border border-slate-200/80 transition-all duration-200 rounded-full w-full max-w-md px-3.5 py-1.5 flex items-center shadow-xs focus-within:ring-2 focus-within:ring-blue-500/30 focus-within:border-blue-500">
+            <Search className="w-4 h-4 mr-2 shrink-0 text-slate-400" />
+            <input
+              ref={inputRef}
+              type="text"
+              placeholder="Buscar avisos, colaboradores, módulos..."
+              className="bg-transparent border-none outline-none w-full text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 font-medium"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onFocus={() => setIsSearchFocused(true)}
+            />
+
+            {searchQuery ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery("");
+                  inputRef.current?.focus();
+                }}
+                className="p-0.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition shrink-0 cursor-pointer"
+                title="Limpar busca"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            ) : (
+              <kbd className="hidden sm:inline-flex items-center gap-0.5 text-[10px] font-mono font-semibold px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded border border-slate-200 shrink-0 pointer-events-none select-none">
+                Ctrl K
+              </kbd>
+            )}
+          </div>
+
+          {/* Categorized Command Palette Results Dropdown */}
+          <AnimatePresence>
+            {showDropdown && (
+              <motion.div
+                initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                transition={{ duration: 0.15 }}
+                className="absolute left-0 right-0 top-full mt-2 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-800 z-50 overflow-hidden max-h-[420px] overflow-y-auto custom-scrollbar text-slate-800 dark:text-slate-100"
+              >
+                {totalResultsCount === 0 ? (
+                  <div className="p-6 text-center">
+                    <Search className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto mb-2 opacity-60" />
+                    <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                      Nenhum resultado encontrado
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Tente buscar por &quot;Ponto&quot;, &quot;PDI&quot;, &quot;Mural&quot; ou pelo nome de um colega.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="p-2 space-y-3">
+                    {/* 🚀 Seção: Módulos do Sistema */}
+                    {matchingModules.length > 0 && (
+                      <div>
+                        <div className="px-3 py-1.5 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center gap-1.5">
+                          <span>🚀 Módulos do Sistema</span>
+                        </div>
+                        <div className="space-y-0.5">
+                          {matchingModules.map((mod) => {
+                            const IconComponent = mod.icon;
+                            return (
+                              <button
+                                key={mod.id}
+                                onClick={() => handleSelectResult(mod.tab)}
+                                className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/80 transition text-left group cursor-pointer"
+                              >
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <div className="p-2 bg-blue-50 dark:bg-blue-950/60 text-[#0043FF] dark:text-blue-400 rounded-xl group-hover:scale-105 transition shrink-0">
+                                    <IconComponent className="w-4 h-4" />
+                                  </div>
+                                  <div className="min-w-0">
+                                    <div className="text-xs font-bold text-slate-800 dark:text-slate-100 group-hover:text-[#0043FF] transition truncate">
+                                      {mod.label}
+                                    </div>
+                                    <div className="text-[10px] text-slate-400 truncate">
+                                      {mod.desc}
+                                    </div>
+                                  </div>
+                                </div>
+                                <ArrowRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-[#0043FF] group-hover:translate-x-0.5 transition shrink-0 ml-2" />
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 👥 Seção: Colaboradores */}
+                    {matchingUsers.length > 0 && (
+                      <div className="border-t border-slate-100 dark:border-slate-800/60 pt-2">
+                        <div className="px-3 py-1.5 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center gap-1.5">
+                          <span>👥 Colaboradores ({matchingUsers.length})</span>
+                        </div>
+                        <div className="space-y-0.5">
+                          {matchingUsers.map((user) => (
+                            <button
+                              key={user.id}
+                              onClick={() => handleSelectResult("funcionarios")}
+                              className="w-full flex items-center justify-between p-2 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/80 transition text-left group cursor-pointer"
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <img
+                                  src={user.avatar}
+                                  alt={user.name}
+                                  className="w-8 h-8 rounded-full object-cover border border-slate-200 shrink-0"
+                                />
+                                <div className="min-w-0">
+                                  <div className="text-xs font-bold text-slate-800 dark:text-slate-100 group-hover:text-[#0043FF] transition truncate">
+                                    {user.name}
+                                  </div>
+                                  <div className="text-[10px] text-slate-400 truncate">
+                                    {user.department} • {user.email}
+                                  </div>
+                                </div>
+                              </div>
+                              <span className="text-[9px] font-extrabold uppercase px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-full shrink-0">
+                                Perfil
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 📢 Seção: Mural & Avisos */}
+                    {matchingPosts.length > 0 && (
+                      <div className="border-t border-slate-100 dark:border-slate-800/60 pt-2">
+                        <div className="px-3 py-1.5 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center gap-1.5">
+                          <span>📢 Mural & Avisos ({matchingPosts.length})</span>
+                        </div>
+                        <div className="space-y-0.5">
+                          {matchingPosts.map((post) => (
+                            <button
+                              key={post.id}
+                              onClick={() => handleSelectResult("mural")}
+                              className="w-full flex items-start justify-between p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/80 transition text-left group cursor-pointer gap-2"
+                            >
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 mb-0.5">
+                                  <span className="text-[9px] font-extrabold uppercase bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 px-1.5 py-0.5 rounded">
+                                    {post.category}
+                                  </span>
+                                  <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300 truncate">
+                                    {post.user_name}
+                                  </span>
+                                </div>
+                                <div className="text-xs text-slate-600 dark:text-slate-300 line-clamp-1 font-normal">
+                                  {post.content}
+                                </div>
+                              </div>
+                              <span className="text-[10px] text-slate-400 shrink-0">
+                                {getTimeAgo(post.created_at)}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         {/* Company & Profile Info */}

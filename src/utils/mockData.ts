@@ -226,6 +226,7 @@ export const INITIAL_POSTS: Post[] = [
         created_at: "2026-07-15T09:22:00Z"
       }
     ],
+    is_pinned: true,
     created_at: "2026-07-15T08:00:00Z"
   },
   {

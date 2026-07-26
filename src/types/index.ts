@@ -112,6 +112,9 @@ export interface Post {
   poll?: Poll;
   badge_award?: BadgeAward;
   created_at: string;
+  is_pinned?: boolean;
+  is_edited?: boolean;
+  updated_at?: string;
 }
 
 export interface Training {

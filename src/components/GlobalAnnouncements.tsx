@@ -1,5 +1,5 @@
 import React from "react";
-import { Megaphone, ArrowRight, Heart, MessageSquare, Award, BarChart2 } from "lucide-react";
+import { Megaphone, ArrowRight, Heart, MessageSquare, Award, BarChart2, Pin } from "lucide-react";
 import { Post } from "../types";
 import { getTimeAgo } from "../utils/formatters";
 
@@ -12,6 +12,12 @@ export const GlobalAnnouncements: React.FC<GlobalAnnouncementsProps> = ({
   posts,
   onNavigateTab,
 }) => {
+  const sortedPosts = [...posts].sort((a, b) => {
+    if (a.is_pinned && !b.is_pinned) return -1;
+    if (!a.is_pinned && b.is_pinned) return 1;
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  });
+
   const getCategoryBadge = (category: Post["category"]) => {
     switch (category) {
       case "aviso":
@@ -72,7 +78,7 @@ export const GlobalAnnouncements: React.FC<GlobalAnnouncementsProps> = ({
 
       {/* Announcements List */}
       <div className="flex-1 overflow-y-auto space-y-3.5 pr-1.5 custom-scrollbar">
-        {posts.length === 0 ? (
+        {sortedPosts.length === 0 ? (
           <div className="text-center py-8 px-4">
             <Megaphone className="w-8 h-8 text-slate-300 mx-auto mb-2 opacity-60" />
             <p className="text-xs text-slate-400 font-medium">
@@ -80,12 +86,16 @@ export const GlobalAnnouncements: React.FC<GlobalAnnouncementsProps> = ({
             </p>
           </div>
         ) : (
-          posts.map((post) => {
+          sortedPosts.map((post) => {
             const badge = getCategoryBadge(post.category);
             return (
               <div
                 key={post.id}
-                className="p-3.5 bg-slate-50/70 hover:bg-slate-50 rounded-xl border border-slate-100 transition-all duration-200 group"
+                className={`p-3.5 rounded-xl border transition-all duration-200 group ${
+                  post.is_pinned
+                    ? "bg-teal-50/60 dark:bg-teal-950/40 border-teal-200 dark:border-teal-800"
+                    : "bg-slate-50/70 hover:bg-slate-50 border-slate-100 dark:border-slate-800"
+                }`}
               >
                 {/* Author info & Tag */}
                 <div className="flex items-start justify-between gap-2 mb-2">
@@ -96,8 +106,11 @@ export const GlobalAnnouncements: React.FC<GlobalAnnouncementsProps> = ({
                       className="w-8 h-8 rounded-full object-cover shrink-0 border border-white shadow-xs"
                     />
                     <div className="min-w-0">
-                      <div className="font-bold text-slate-800 text-xs truncate">
-                        {post.user_name}
+                      <div className="font-bold text-slate-800 dark:text-slate-200 text-xs truncate flex items-center gap-1">
+                        <span>{post.user_name}</span>
+                        {post.is_edited && (
+                          <span className="text-[9px] text-slate-400 font-normal">(editado)</span>
+                        )}
                       </div>
                       <div className="text-[10px] text-slate-400 font-medium">
                         {getTimeAgo(post.created_at)}
@@ -105,11 +118,19 @@ export const GlobalAnnouncements: React.FC<GlobalAnnouncementsProps> = ({
                     </div>
                   </div>
 
-                  <span
-                    className={`text-[9px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${badge.className}`}
-                  >
-                    {badge.label}
-                  </span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {post.is_pinned && (
+                      <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-teal-600 text-white flex items-center gap-0.5 shadow-xs">
+                        <Pin className="w-2.5 h-2.5 fill-current" />
+                        Fixado
+                      </span>
+                    )}
+                    <span
+                      className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${badge.className}`}
+                    >
+                      {badge.label}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Content */}
