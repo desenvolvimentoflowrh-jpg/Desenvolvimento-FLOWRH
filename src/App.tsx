@@ -18,6 +18,7 @@ import { FallingSwirlSnowflakes } from "./components/FallingSwirlSnowflakes";
 import { Login } from "./pages/Login";
 import { Dashboard } from "./pages/Dashboard";
 import { Mural } from "./pages/Mural";
+import { ChatPage } from "./pages/Chat";
 import { Ponto } from "./pages/Ponto";
 import { Funcionarios } from "./pages/Funcionarios";
 import { PDI } from "./pages/PDI";
@@ -172,6 +173,14 @@ export function App() {
                 onAddPost={addPost}
                 onUpdatePost={updatePost}
                 onDeletePost={deletePost}
+              />
+            )}
+
+            {currentTab === "chat" && (
+              <ChatPage
+                key="chat"
+                currentUser={currentUser}
+                allUsers={users}
               />
             )}
 

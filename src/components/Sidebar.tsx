@@ -2,6 +2,7 @@ import React from "react";
 import {
   LayoutDashboard,
   MessageSquare,
+  MessagesSquare,
   Clock,
   Users,
   Briefcase,
@@ -90,6 +91,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <span className="text-[9px] pb-1.5 font-bold tracking-tight">Mural</span>
         {currentTab === "mural" && !isOnboarding && (
           <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-7 bg-[#14B8A6] rounded-r" />
+        )}
+      </button>
+
+      {/* Chat / Comunicação Interna Icon */}
+      <button
+        onClick={() => handleTabClick("chat")}
+        className={`flex flex-col items-center group relative w-14 h-14 rounded-2xl transition-all duration-300 cursor-pointer ${
+          isTabActive("chat", ["comunicacao"])
+            ? "bg-[#0043FF] text-white scale-105 shadow-lg shadow-blue-500/20 border border-blue-400/30"
+            : "bg-white/5 text-slate-400 hover:text-white hover:bg-white/10 border border-white/5"
+        }`}
+        title="Comunicação Interna / Chat Privado e Grupos"
+      >
+        <div className="flex-1 flex items-center justify-center pt-1.5">
+          <MessagesSquare
+            className={`w-5 h-5 transition-transform duration-300 group-hover:scale-110 ${
+              isTabActive("chat", ["comunicacao"]) ? "text-white" : "text-[#60A5FA]"
+            }`}
+          />
+        </div>
+        <span className="text-[9px] pb-1.5 font-bold tracking-tight">Chat</span>
+        {isTabActive("chat", ["comunicacao"]) && (
+          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-7 bg-[#0043FF] rounded-r" />
         )}
       </button>
 

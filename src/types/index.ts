@@ -1,3 +1,6 @@
+export * from "./presence";
+export * from "./chat";
+
 export enum UserRole {
   COLLABORATOR = "collaborator",
   SUPERVISOR = "supervisor",

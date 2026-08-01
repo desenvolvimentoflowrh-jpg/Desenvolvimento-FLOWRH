@@ -3,12 +3,34 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
+import {
+  PORT,
+  GEMINI_MODEL,
+  SCORE_BASE,
+  SCORE_MAX,
+  SCORE_MIN_CLAMP,
+  SCORE_THRESHOLD_APROVADO,
+  SCORE_THRESHOLD_ARQUIVADO,
+  POLICY_CONTEXT,
+  RESUME_SCREENING_PROMPT
+} from "./config";
 
 dotenv.config();
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+
+  // CORS Middleware
+  app.use((req, res, next) => {
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
+    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    if (req.method === "OPTIONS") {
+      res.sendStatus(200);
+      return;
+    }
+    next();
+  });
 
   app.use(express.json({ limit: "10mb" }));
 
@@ -33,8 +55,133 @@ async function startServer() {
     console.warn("GEMINI_API_KEY is not defined. Flow AI questions will fallback to local simulated answers.");
   }
 
+  // Input sanitization and validation function for AI model inputs
+  function validateAndSanitizeInput(fields: Record<string, any>): {
+    isValid: boolean;
+    errorMessage?: string;
+    sanitizedFields?: Record<string, any>;
+  } {
+    const FORBIDDEN_SEQUENCES = [
+      "```",
+      "`",
+      "<!--",
+      "-->",
+      "/*",
+      "*/",
+      "<<",
+      ">>",
+      "{{",
+      "}}",
+      "${",
+      "}"
+    ];
+
+    const extractStrings = (val: any): string[] => {
+      if (typeof val === "string") return [val];
+      if (Array.isArray(val)) return val.flatMap(extractStrings);
+      if (val !== null && typeof val === "object") {
+        return Object.values(val).flatMap(extractStrings);
+      }
+      return [];
+    };
+
+    const sanitizeStr = (str: string): string => {
+      let cleaned = str.replace(/\n{6,}/g, "\n\n");
+      for (const seq of FORBIDDEN_SEQUENCES) {
+        cleaned = cleaned.split(seq).join("");
+      }
+      return cleaned;
+    };
+
+    const sanitizeValue = (val: any): any => {
+      if (typeof val === "string") {
+        return sanitizeStr(val);
+      }
+      if (Array.isArray(val)) {
+        return val.map(sanitizeValue);
+      }
+      if (val !== null && typeof val === "object") {
+        const res: Record<string, any> = {};
+        for (const [k, v] of Object.entries(val)) {
+          res[k] = sanitizeValue(v);
+        }
+        return res;
+      }
+      return val;
+    };
+
+    const sanitizedFields: Record<string, any> = {};
+
+    for (const [fieldName, fieldValue] of Object.entries(fields)) {
+      if (fieldValue === undefined || fieldValue === null) continue;
+
+      if (typeof fieldValue === "string") {
+        if (fieldValue.length > 2000) {
+          return {
+            isValid: false,
+            errorMessage: "Entrada inválida: tamanho excedido ou conteúdo não permitido"
+          };
+        }
+      } else if (typeof fieldValue === "object") {
+        if (JSON.stringify(fieldValue).length > 2000) {
+          return {
+            isValid: false,
+            errorMessage: "Entrada inválida: tamanho excedido ou conteúdo não permitido"
+          };
+        }
+      }
+
+      const stringsToCheck = extractStrings(fieldValue);
+      for (const str of stringsToCheck) {
+        if (str.length > 2000) {
+          return {
+            isValid: false,
+            errorMessage: "Entrada inválida: tamanho excedido ou conteúdo não permitido"
+          };
+        }
+        for (const seq of FORBIDDEN_SEQUENCES) {
+          if (str.includes(seq)) {
+            return {
+              isValid: false,
+              errorMessage: "Entrada inválida: tamanho excedido ou conteúdo não permitido"
+            };
+          }
+        }
+      }
+
+      sanitizedFields[fieldName] = sanitizeValue(fieldValue);
+    }
+
+    return {
+      isValid: true,
+      sanitizedFields
+    };
+  }
+
+  // Rate limiting middleware (500 requests per minute per IP)
+  const rateLimitMap = new Map<string, number[]>();
+  const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+  const MAX_REQUESTS_PER_WINDOW = 500;
+
+  function rateLimiter(req: express.Request, res: express.Response, next: express.NextFunction) {
+    const ip = (req.ip || req.socket.remoteAddress || "unknown").toString();
+    const now = Date.now();
+    const windowStart = now - RATE_LIMIT_WINDOW_MS;
+
+    const timestamps = (rateLimitMap.get(ip) || []).filter((ts) => ts > windowStart);
+
+    if (timestamps.length >= MAX_REQUESTS_PER_WINDOW) {
+      res.status(429).json({ error: "Muitas requisições. Por favor, tente novamente mais tarde." });
+      return;
+    }
+
+    timestamps.push(now);
+    rateLimitMap.set(ip, timestamps);
+    next();
+  }
+
   // API Route: Flow AI assistant
-  app.post("/api/flow-ai", async (req, res) => {
+  app.post("/api/flow-ai", rateLimiter, async (req, res) => {
     const { message, history, context } = req.body;
 
     if (!message) {
@@ -42,39 +189,25 @@ async function startServer() {
       return;
     }
 
+    const validation = validateAndSanitizeInput({ message, history, context });
+    if (!validation.isValid) {
+      res.status(400).json({ error: validation.errorMessage || "Entrada inválida: tamanho excedido ou conteúdo não permitido" });
+      return;
+    }
+
+    const cleanMessage = validation.sanitizedFields?.message || message;
+    const cleanHistory = validation.sanitizedFields?.history || history;
+    const cleanContext = validation.sanitizedFields?.context || context;
+
+    const companyName = cleanContext?.companyName || "Base44 Tec";
+    const userName = cleanContext?.userName || "Colaborador";
+    const userRole = cleanContext?.userRole || "Colaborador";
+
     // Default policy context to feed the LLM
-    const policyContext = `
-Você é a "Flow AI", assistente virtual inteligente integrada à plataforma Flow RH (uma experiência SaaS de Employee Experience inovadora para RH e Departamento Pessoal desenvolvida pela Base44).
-Você deve ajudar colaboradores e gestores respondendo dúvidas em português de forma amigável, clara, concisa e profissional.
-
-Dados da Empresa do Usuário:
-- Nome: ${context?.companyName || "Base44 Tec"}
-- Colaborador atual: ${context?.userName || "Colaborador"} (Função: ${context?.userRole || "Colaborador"})
-
-Manual de Políticas da Empresa (${context?.companyName || "Base44 Tec"}):
-1. Controle de Ponto:
-   - Registro diário obrigatório de ponto de entrada, almoço (ida/volta) e saída.
-   - É obrigatório o fluxo de batida de ponto com validação facial pela câmera frontal.
-   - Horário padrão de expediente: Segunda a Sexta, das 09:00 às 18:00 (1 hora de intervalo).
-
-2. Banco de Horas e Horas Extras:
-   - Todas as horas excedentes são computadas no Banco de Horas automático da plataforma.
-   - Horas extras acumuladas podem ser compensadas mediante alinhamento prévio com o Gestor de RH.
-
-3. Reembolsos de Despesas:
-   - O reembolso de alimentação em viagens de trabalho ou reuniões com clientes é de no máximo R$ 50,00 por refeição, mediante envio de nota fiscal digitalizada.
-   - Despesas de transporte/Uber são reembolsadas integralmente se justificadas no relatório mensal de despesas.
-   - Relatórios mensais devem ser enviados até o dia 25 de cada mês.
-
-4. Férias:
-   - Todo colaborador tem direito a 30 dias de férias remuneradas após completar o período aquisitivo de 12 meses de trabalho (1 ano de casa).
-   - A solicitação de férias deve ser feita com no mínimo 30 dias de antecedência pela plataforma ou direto com o Gestor de RH.
-
-5. Trabalho Híbrido:
-   - Modelo híbrido padrão de 3 dias remoto (Home Office) e 2 dias presencial no escritório de São Paulo. Os dias presenciais recomendados são Terças e Quintas-feiras.
-
-Responda à seguinte pergunta de forma direta, amigável, profissional e focada, usando o contexto acima se aplicável. Use markdown de forma limpa para destacar pontos cruciais como negritos e listas de itens. Nunca invente informações fora deste contexto ou mencione parâmetros técnicos do sistema.
-    `;
+    const policyContext = POLICY_CONTEXT
+      .replace(/\${companyName}/g, companyName)
+      .replace(/\${userName}/g, userName)
+      .replace(/\${userRole}/g, userRole);
 
     if (ai) {
       try {
@@ -83,8 +216,8 @@ Responda à seguinte pergunta de forma direta, amigável, profissional e focada,
         ];
 
         // Format history
-        if (history && Array.isArray(history)) {
-          history.forEach((h: any) => {
+        if (cleanHistory && Array.isArray(cleanHistory)) {
+          cleanHistory.forEach((h: any) => {
             contents.push({
               role: h.role === "user" ? "user" : "model",
               parts: [{ text: h.text }]
@@ -95,33 +228,33 @@ Responda à seguinte pergunta de forma direta, amigável, profissional e focada,
         // Add current question
         contents.push({
           role: "user",
-          parts: [{ text: message }]
+          parts: [{ text: cleanMessage }]
         });
 
         const result = await ai.models.generateContent({
-          model: "gemini-3.5-flash",
+          model: GEMINI_MODEL,
           contents,
         });
 
         res.json({ answer: result.text || "Desculpe, não consegui obter uma resposta da IA." });
       } catch (err: any) {
         console.error("Error generating content from Gemini:", err);
-        res.status(500).json({ error: "Erro ao processar com Gemini: " + err.message });
+        res.status(500).json({ error: "Erro interno do servidor" });
       }
     } else {
       // Fallback local simulated expert response
-      const lowercaseMsg = message.toLowerCase();
+      const lowercaseMsg = cleanMessage.toLowerCase();
       let answer = "";
       if (lowercaseMsg.includes("férias") || lowercaseMsg.includes("ferias") || lowercaseMsg.includes("dia") || lowercaseMsg.includes("quando")) {
-        answer = `Olá! De acordo com as diretrizes do **Flow RH** para a **${context?.companyName || "Base44 Tec"}**, você adquire **30 dias de férias** remuneradas após completar **12 meses (1 ano)** de serviço contínuo.
+        answer = `Olá! De acordo com as diretrizes do **Flow RH** para a **${cleanContext?.companyName || "Base44 Tec"}**, você adquire **30 dias de férias** remuneradas após completar **12 meses (1 ano)** de serviço contínuo.
 
 Para solicitar suas férias:
 - Faça o pedido com no mínimo **30 dias de antecedência** pelo painel.
-- Alinhe o período desejado com seu **Gestor de RH** (${context?.companyName || "Base44 Tec"}).
+- Alinhe o período desejado com seu **Gestor de RH** (${cleanContext?.companyName || "Base44 Tec"}).
 
 Gostaria de iniciar uma simulação de agendamento de férias?`;
       } else if (lowercaseMsg.includes("reembolso") || lowercaseMsg.includes("reembolsar") || lowercaseMsg.includes("uber") || lowercaseMsg.includes("alimentação") || lowercaseMsg.includes("despesa") || lowercaseMsg.includes("nota")) {
-        answer = `Olá! A política de reembolso de despesas da **${context?.companyName || "Base44 Tec"}** define o seguinte:
+        answer = `Olá! A política de reembolso de despesas da **${cleanContext?.companyName || "Base44 Tec"}** define o seguinte:
 - 🍔 **Alimentação:** Limite de até **R$ 50,00** por refeição, mediante apresentação de cupom ou nota fiscal.
 - 🚗 **Transporte (Uber/Táxi):** Reembolsado integralmente se justificado no relatório para compromissos corporativos.
 - 📆 **Prazo de Envio:** Todos os comprovantes e o relatório mensal devem ser submetidos até o **dia 25 de cada mês**.
@@ -137,7 +270,7 @@ Você pode carregar os arquivos de notas fiscais digitalizadas e cadastrar no se
 
 Para bater o ponto agora, basta navegar até a aba ⏰ **Ponto** no painel lateral!`;
       } else if (lowercaseMsg.includes("híbrido") || lowercaseMsg.includes("remoto") || lowercaseMsg.includes("presencial") || lowercaseMsg.includes("escritório") || lowercaseMsg.includes("home office")) {
-        answer = `A **${context?.companyName || "Base44 Tec"}** adota o modelo de **Trabalho Híbrido**:
+        answer = `A **${cleanContext?.companyName || "Base44 Tec"}** adota o modelo de **Trabalho Híbrido**:
 - 🏠 **3 dias de Home Office** (Remoto).
 - 🏢 **2 dias presenciais** no escritório de São Paulo.
 - 🗓️ Os dias recomendados para comparecimento presencial para integração do time são **Terças** e **Quintas-feiras**.
@@ -161,7 +294,7 @@ Como posso ajudar você hoje?`;
   });
 
   // API Route: Resume Screening / Triagem de Currículos
-  app.post("/api/screen-resume", async (req, res) => {
+  app.post("/api/screen-resume", rateLimiter, async (req, res) => {
     const { resumeText, candidateName, targetRole } = req.body;
 
     if (!resumeText) {
@@ -169,37 +302,28 @@ Como posso ajudar você hoje?`;
       return;
     }
 
-    const candidate = candidateName || "Candidato";
-    const role = targetRole || "Vaga Geral";
-
-    const prompt = `
-    Você é um Especialista Sênior em Recrutamento e Seleção de RH (Tech Recruiter).
-    Analise o seguinte currículo para a vaga de "${role}".
-
-    Nome do Candidato: ${candidate}
-    Texto do Currículo:
-    """
-    ${resumeText}
-    """
-
-    Retorne uma avaliação estruturada e rigorosa em formato JSON de acordo com o seguinte esquema:
-    {
-      "score": <número de 0 a 100 indicando a aderência técnica e comportamental do candidato>,
-      "status": "<Aprovado | Segunda Fase | Arquivado>",
-      "summary": "<um resumo executivo profissional do perfil do candidato e do seu alinhamento com a vaga de 3 a 4 sentenças>",
-      "strengths": [<lista de até 4 principais pontos fortes / competências chave do candidato>],
-      "weaknesses": [<lista de até 3 principais pontos de atenção, gaps técnicos ou comportamentais>],
-      "culturalFit": "<breve análise de alinhamento cultural do candidato com ambientes de inovação rápida, autonomia e trabalho híbrido>",
-      "interviewQuestions": [<lista de até 3 perguntas altamente específicas e direcionadas para fazer a este candidato durante a entrevista técnica ou comportamental baseada nos gaps ou experiências do currículo>]
+    const validation = validateAndSanitizeInput({ resumeText, candidateName, targetRole });
+    if (!validation.isValid) {
+      res.status(400).json({ error: validation.errorMessage || "Entrada inválida: tamanho excedido ou conteúdo não permitido" });
+      return;
     }
 
-    Retorne APENAS o objeto JSON puro, sem marcações markdown de bloco de código (não use \`\`\`json ou \`\`\`), sem textos adicionais antes ou depois.
-    `;
+    const cleanResumeText = validation.sanitizedFields?.resumeText || resumeText;
+    const cleanCandidateName = validation.sanitizedFields?.candidateName || candidateName;
+    const cleanTargetRole = validation.sanitizedFields?.targetRole || targetRole;
+
+    const candidate = cleanCandidateName || "Candidato";
+    const role = cleanTargetRole || "Vaga Geral";
+
+    const prompt = RESUME_SCREENING_PROMPT
+      .replace("${role}", role)
+      .replace("${candidate}", candidate)
+      .replace("${resumeText}", cleanResumeText);
 
     if (ai) {
       try {
         const result = await ai.models.generateContent({
-          model: "gemini-3.5-flash",
+          model: GEMINI_MODEL,
           contents: prompt,
         });
 
@@ -214,11 +338,11 @@ Como posso ajudar você hoje?`;
         res.json(evaluation);
       } catch (err: any) {
         console.error("Error screening resume with Gemini:", err);
-        const fallbackEval = generateSimulatedScreening(candidate, role, resumeText);
+        const fallbackEval = generateSimulatedScreening(candidate, role, cleanResumeText);
         res.json(fallbackEval);
       }
     } else {
-      const fallbackEval = generateSimulatedScreening(candidate, role, resumeText);
+      const fallbackEval = generateSimulatedScreening(candidate, role, cleanResumeText);
       res.json(fallbackEval);
     }
   });
@@ -244,9 +368,15 @@ Como posso ajudar você hoje?`;
 }
 
 function generateSimulatedScreening(candidate: string, role: string, text: string) {
+  let strengths: string[] = [];
+  let weaknesses: string[] = [];
+  let summary = "";
+  let culturalFit = "";
+  let interviewQuestions: string[] = [];
+
   const lowercaseText = text.toLowerCase();
   
-  let score = 55;
+  let score = SCORE_BASE;
   const keywords: Record<string, number> = {
     "react": 8, "typescript": 8, "node": 6, "javascript": 5, "figma": 7, "design": 5,
     "gestão": 7, "liderança": 6, "scrum": 5, "agile": 4, "api": 5, "rh": 8, "recursos humanos": 8,
@@ -259,18 +389,12 @@ function generateSimulatedScreening(candidate: string, role: string, text: strin
     }
   }
 
-  if (score > 95) score = 95;
-  if (score < 30) score = 35;
+  if (score > SCORE_MAX) score = SCORE_MAX;
+  if (score < SCORE_MIN_CLAMP) score = SCORE_MIN_CLAMP + 5;
 
   let status: "Aprovado" | "Segunda Fase" | "Arquivado" = "Segunda Fase";
-  if (score >= 80) status = "Aprovado";
-  else if (score < 50) status = "Arquivado";
-
-  const strengths: string[] = [];
-  const weaknesses: string[] = [];
-  let summary = "";
-  let culturalFit = "";
-  let interviewQuestions: string[] = [];
+  if (score >= SCORE_THRESHOLD_APROVADO) status = "Aprovado";
+  else if (score < SCORE_THRESHOLD_ARQUIVADO) status = "Arquivado";
 
   if (role.toLowerCase().includes("desenvolvedor") || role.toLowerCase().includes("stack") || role.toLowerCase().includes("tech")) {
     summary = `O candidato ${candidate} apresenta um perfil técnico com boa base no ecossistema web moderno. Demonstra experiências práticas relevantes que se conectam bem com as demandas de desenvolvimento ágil da vaga de ${role}. Contudo, é necessário aprofundar seu conhecimento em arquiteturas escaláveis.`;

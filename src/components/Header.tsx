@@ -23,6 +23,10 @@ import {
 import { UserProfile, Company, UserRole, Post } from "../types";
 import { FlowRhLogo } from "./FlowRhLogo";
 import { getTimeAgo } from "../utils/formatters";
+import { useUserPresence } from "../hooks/useUserPresence";
+import { AvatarWithStatus } from "./AvatarWithStatus";
+import { UserStatusBadge } from "./UserStatusBadge";
+import { UserStatusSelector } from "./UserStatusSelector";
 
 interface HeaderProps {
   currentUser: UserProfile;
@@ -138,6 +142,8 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
+
+  const { currentStatus, updateStatus, getUserPresence } = useUserPresence(currentUser);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
@@ -259,7 +265,15 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Main App Header */}
       <header className="bg-[#0043FF] text-white py-3 px-6 flex items-center justify-between shadow-md sticky top-0 z-40 relative">
         <div className="flex items-center gap-3">
-          <FlowRhLogo size="text-2xl" textColor="text-white" iconSize="h-8" />
+          <button
+            type="button"
+            onClick={() => onNavigateTab?.("dashboard")}
+            className="flex items-center gap-3 cursor-pointer hover:opacity-90 active:scale-98 transition focus:outline-none"
+            title="Voltar para a página inicial"
+            aria-label="Voltar para a página inicial"
+          >
+            <FlowRhLogo size="text-2xl" textColor="text-white" iconSize="h-8" />
+          </button>
         </div>
 
         {/* Global Search Component */}
@@ -367,10 +381,11 @@ export const Header: React.FC<HeaderProps> = ({
                               className="w-full flex items-center justify-between p-2 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/80 transition text-left group cursor-pointer"
                             >
                               <div className="flex items-center gap-2.5 min-w-0">
-                                <img
+                                <AvatarWithStatus
                                   src={user.avatar}
                                   alt={user.name}
-                                  className="w-8 h-8 rounded-full object-cover border border-slate-200 shrink-0"
+                                  status={getUserPresence(user.id)}
+                                  size="sm"
                                 />
                                 <div className="min-w-0">
                                   <div className="text-xs font-bold text-slate-800 dark:text-slate-100 group-hover:text-[#0043FF] transition truncate">
@@ -443,13 +458,16 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="relative">
             <button
               onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
-              className="flex items-center gap-1.5 focus:outline-none focus:ring-2 focus:ring-white/30 rounded-full p-0.5 transition"
-              aria-label="Menu do Usuário"
+              className="flex items-center gap-1.5 focus:outline-none focus:ring-2 focus:ring-white/30 rounded-full p-0.5 transition cursor-pointer"
+              aria-label="Menu do Usuário e Estado de Presença"
+              title={`Menu do Usuário (${currentUser.name})`}
             >
-              <img
+              <AvatarWithStatus
                 src={currentUser.avatar}
                 alt={currentUser.name}
-                className="w-10 h-10 rounded-full object-cover border-2 border-white/50 shadow-sm cursor-pointer hover:scale-105 transition"
+                status={currentStatus}
+                size="md"
+                imgClassName="hover:scale-105 transition"
               />
               <ChevronDown
                 className={`w-3.5 h-3.5 text-white/70 transition-transform duration-200 ${
@@ -471,41 +489,53 @@ export const Header: React.FC<HeaderProps> = ({
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: 10, scale: 0.95 }}
                     transition={{ duration: 0.15 }}
-                    className="absolute right-0 mt-2.5 w-72 bg-white rounded-2xl border border-slate-100 shadow-xl overflow-hidden z-50 text-slate-800"
+                    className="absolute right-0 mt-2.5 w-76 bg-white rounded-2xl border border-slate-100 shadow-xl overflow-hidden z-50 text-slate-800"
                   >
                     <div className="p-4 bg-gradient-to-r from-slate-50 to-white border-b border-slate-100 flex items-center gap-3">
-                      <img
+                      <AvatarWithStatus
                         src={currentUser.avatar}
                         alt={currentUser.name}
-                        className="w-11 h-11 rounded-full object-cover border border-slate-200"
+                        status={currentStatus}
+                        size="lg"
                       />
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <div className="text-xs font-bold text-slate-900 truncate">
                           {currentUser.name}
                         </div>
                         <div className="text-[10px] text-slate-500 truncate mb-1">
                           {currentUser.email}
                         </div>
-                        <span
-                          className={`inline-block text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded ${
-                            currentUser.role === UserRole.SUPER_ADMIN
-                              ? "bg-purple-100 text-purple-700"
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span
+                            className={`inline-block text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded ${
+                              currentUser.role === UserRole.SUPER_ADMIN
+                                ? "bg-purple-100 text-purple-700"
+                                : currentUser.role === UserRole.HR_MANAGER
+                                ? "bg-blue-100 text-[#0043FF]"
+                                : currentUser.role === UserRole.SUPERVISOR
+                                ? "bg-amber-100 text-amber-700"
+                                : "bg-slate-100 text-slate-600"
+                            }`}
+                          >
+                            {currentUser.role === UserRole.SUPER_ADMIN
+                              ? "Super Admin"
                               : currentUser.role === UserRole.HR_MANAGER
-                              ? "bg-blue-100 text-[#0043FF]"
+                              ? "Gestor de RH"
                               : currentUser.role === UserRole.SUPERVISOR
-                              ? "bg-amber-100 text-amber-700"
-                              : "bg-slate-100 text-slate-600"
-                          }`}
-                        >
-                          {currentUser.role === UserRole.SUPER_ADMIN
-                            ? "Super Admin"
-                            : currentUser.role === UserRole.HR_MANAGER
-                            ? "Gestor de RH"
-                            : currentUser.role === UserRole.SUPERVISOR
-                            ? "Supervisor"
-                            : "Colaborador"}
-                        </span>
+                              ? "Supervisor"
+                              : "Colaborador"}
+                          </span>
+                          <UserStatusBadge status={currentStatus} showLabel size="sm" />
+                        </div>
                       </div>
+                    </div>
+
+                    {/* Status Presence Selector */}
+                    <div className="p-2 border-b border-slate-100 bg-slate-50/60">
+                      <UserStatusSelector
+                        currentStatus={currentStatus}
+                        onStatusChange={(status) => updateStatus(status)}
+                      />
                     </div>
 
                     <div className="p-1.5 space-y-0.5">

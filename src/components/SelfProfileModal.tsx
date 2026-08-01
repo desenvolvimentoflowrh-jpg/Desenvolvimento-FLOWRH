@@ -13,6 +13,9 @@ import {
 } from "lucide-react";
 import { UserProfile } from "../types";
 import { Modal } from "./Modal";
+import { useUserPresence } from "../hooks/useUserPresence";
+import { AvatarWithStatus } from "./AvatarWithStatus";
+import { UserStatusSelector } from "./UserStatusSelector";
 
 interface SelfProfileModalProps {
   isOpen: boolean;
@@ -29,6 +32,7 @@ export const SelfProfileModal: React.FC<SelfProfileModalProps> = ({
   users,
   onUpdateUser
 }) => {
+  const { currentStatus, updateStatus } = useUserPresence(currentUser);
   const [isEditing, setIsEditing] = useState(false);
   const [selfName, setSelfName] = useState(currentUser.name);
   const [selfEmail, setSelfEmail] = useState(currentUser.email);
@@ -155,15 +159,26 @@ export const SelfProfileModal: React.FC<SelfProfileModalProps> = ({
       {/* Header Profile Section with Overlapping Avatar */}
       <div className="px-6 pb-2 pt-0 flex flex-col items-center text-center -mt-12 mb-4">
         <div className="relative group">
-          <img
+          <AvatarWithStatus
             src={isEditing ? selfAvatar || currentUser.avatar : currentUser.avatar}
             alt={currentUser.name}
-            className="w-20 h-20 rounded-full border-4 border-white shadow-md object-cover bg-white"
+            status={currentStatus}
+            size="xl"
+            imgClassName="border-4 border-white shadow-md bg-white"
           />
         </div>
 
         <h3 className="text-lg font-bold text-slate-800 mt-2">{currentUser.name}</h3>
         <p className="text-sm text-slate-500 font-medium">{currentUser.email}</p>
+
+        {/* Presence Selector in Profile Modal */}
+        <div className="mt-3 w-full max-w-xs bg-slate-50 p-2 rounded-2xl border border-slate-100">
+          <UserStatusSelector
+            currentStatus={currentStatus}
+            onStatusChange={(status) => updateStatus(status)}
+            variant="compact"
+          />
+        </div>
 
         <div className="mt-2.5 flex items-center gap-2 flex-wrap justify-center">
           <span className="bg-blue-50 text-blue-700 text-xs font-semibold px-2.5 py-1 rounded-full uppercase tracking-wider border border-blue-100">

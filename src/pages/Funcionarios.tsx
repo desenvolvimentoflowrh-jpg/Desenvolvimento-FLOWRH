@@ -13,6 +13,8 @@ import {
   Send
 } from "lucide-react";
 import { UserProfile, UserRole, Invitation } from "../types";
+import { useUserPresence } from "../hooks/useUserPresence";
+import { AvatarWithStatus } from "../components/AvatarWithStatus";
 
 interface FuncionariosProps {
   currentUser: UserProfile;
@@ -39,6 +41,7 @@ export const Funcionarios: React.FC<FuncionariosProps> = ({
   onAddInvitation,
   onEditUserClick
 }) => {
+  const { getUserPresence } = useUserPresence(currentUser);
   const [searchTerm, setSearchTerm] = useState("");
   const [creationMode, setCreationMode] = useState<"invite" | "direct">("invite");
   const [inviteEmail, setInviteEmail] = useState("");
@@ -156,20 +159,12 @@ export const Funcionarios: React.FC<FuncionariosProps> = ({
                   className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 hover:bg-slate-50/50 transition"
                 >
                   <div className="flex items-center gap-3">
-                    <div className="relative">
-                      <img
-                        src={u.avatar}
-                        alt={u.name}
-                        className={`w-10 h-10 rounded-full object-cover border-2 ${
-                          u.active !== false ? "border-emerald-400" : "border-slate-300 opacity-60"
-                        }`}
-                      />
-                      <span
-                        className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white ${
-                          u.active !== false ? "bg-emerald-500" : "bg-slate-400"
-                        }`}
-                      />
-                    </div>
+                    <AvatarWithStatus
+                      src={u.avatar}
+                      alt={u.name}
+                      status={u.active === false ? "offline" : getUserPresence(u.id)}
+                      size="md"
+                    />
                     <div>
                       <div className="font-bold text-slate-900 text-xs flex items-center gap-2">
                         <span>{u.name}</span>

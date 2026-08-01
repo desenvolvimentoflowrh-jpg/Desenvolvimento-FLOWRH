@@ -6,9 +6,8 @@ export function useAuth(initialUsers?: UserProfile[], initialCompanies?: Company
   const users = initialUsers || dataService.getUsers();
   const companies = initialCompanies || dataService.getCompanies();
 
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
-    return localStorage.getItem("flow_is_logged_in") === "true";
-  });
+  // Always demand authentication on initial load - initial screen is strictly Login
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
 
   const [currentUser, setCurrentUser] = useState<UserProfile>(() => {
     const savedUser = localStorage.getItem("flow_current_user");
