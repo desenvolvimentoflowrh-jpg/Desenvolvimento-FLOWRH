@@ -20,6 +20,7 @@ import { UserProfile, Post, UserRole } from "../types";
 import { BADGE_OPTIONS, POST_CATEGORIES } from "../utils/constants";
 import { getTimeAgo } from "../utils/formatters";
 import { publishPostService } from "../services/muralService";
+import { canDeletePost } from "../utils/rbac";
 
 interface MuralProps {
   currentUser: UserProfile;
@@ -235,8 +236,10 @@ export const Mural: React.FC<MuralProps> = ({
     });
   };
 
+  const isGestorOrAdmin = canDeletePost(currentUser);
+
   const handleDeleteComment = (post: Post, commentId: string) => {
-    if (!isManagerOrAdmin) return;
+    if (!isGestorOrAdmin) return;
     const updatedComments = post.comments.filter((c) => c.id !== commentId);
     onUpdatePost({
       ...post,
@@ -531,12 +534,12 @@ export const Mural: React.FC<MuralProps> = ({
                       </button>
                     )}
 
-                    {/* Delete Action - Apenas Administradores e Gestores */}
-                    {isManagerOrAdmin && (
+                    {/* Delete Action - Restrito a Gestores e Super Admins */}
+                    {isGestorOrAdmin && (
                       <button
                         onClick={() => onDeletePost(post.id)}
                         className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
-                        title="Excluir postagem (Apenas Administradores)"
+                        title="Excluir postagem (Apenas Gestores e Super Admins)"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -657,12 +660,12 @@ export const Mural: React.FC<MuralProps> = ({
                           </div>
                         </div>
 
-                        {/* Delete Comment Action - Restrito a Administradores */}
-                        {isManagerOrAdmin && (
+                        {/* Delete Comment Action - Restrito a Gestores e Super Admins */}
+                        {isGestorOrAdmin && (
                           <button
                             onClick={() => handleDeleteComment(post, c.id)}
                             className="text-slate-300 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 p-1 rounded transition cursor-pointer shrink-0 opacity-80 hover:opacity-100"
-                            title="Excluir mensagem (Apenas Administradores)"
+                            title="Excluir mensagem (Apenas Gestores e Super Admins)"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>

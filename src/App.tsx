@@ -4,6 +4,7 @@ import { AnimatePresence } from "framer-motion";
 import { useAuth } from "./hooks/useAuth";
 import { useHRData } from "./hooks/useHRData";
 import { UserProfile, UserRole } from "./types";
+import { canAccessGestao } from "./utils/rbac";
 
 // Extracted UI Components
 import { Header } from "./components/Header";
@@ -25,6 +26,7 @@ import { PDI } from "./pages/PDI";
 import { Onboarding } from "./pages/Onboarding";
 import { FlowAI } from "./pages/FlowAI";
 import { SuperAdmin } from "./pages/SuperAdmin";
+import { Configuracoes } from "./pages/Configuracoes";
 
 export function App() {
   const {
@@ -85,6 +87,7 @@ export function App() {
   const [isSupportOpen, setIsSupportOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
+  const [onboardingTargetUser, setOnboardingTargetUser] = useState<UserProfile | null>(null);
 
   // Fallback active company
   const activeCompany =
@@ -195,7 +198,7 @@ export function App() {
               />
             )}
 
-            {currentTab === "funcionarios" && (
+            {currentTab === "funcionarios" && canAccessGestao(currentUser) && (
               <Funcionarios
                 key="funcionarios"
                 currentUser={currentUser}
@@ -208,6 +211,10 @@ export function App() {
                 onDeleteUser={(userId) => setDeletingUserId(userId)}
                 onAddInvitation={addInvitation}
                 onEditUserClick={(user) => setEditingUser(user)}
+                onOpenOnboardingForUser={(target) => {
+                  setOnboardingTargetUser(target);
+                  setCurrentTab("onboarding");
+                }}
               />
             )}
 
@@ -220,11 +227,14 @@ export function App() {
               />
             )}
 
-            {currentTab === "onboarding" && (
+            {currentTab === "onboarding" && canAccessGestao(currentUser) && (
               <Onboarding
                 key="onboarding"
                 currentUser={currentUser}
                 users={users}
+                targetUser={onboardingTargetUser}
+                onUpdateUser={updateUser}
+                onBackToGestao={() => setCurrentTab("funcionarios")}
               />
             )}
 
@@ -242,6 +252,22 @@ export function App() {
                 companies={companies}
                 users={users}
                 onAddCompany={addCompany}
+              />
+            )}
+
+            {currentTab === "configuracoes" && (
+              <Configuracoes
+                key="configuracoes"
+                currentUser={currentUser}
+                activeCompany={activeCompany}
+                companies={companies}
+                activeCompanyId={activeCompany.id}
+                onSwitchCompany={(id) => setLoginCompanyId(id)}
+                onResetDatabase={() => {
+                  localStorage.clear();
+                  window.location.reload();
+                }}
+                users={users}
               />
             )}
           </AnimatePresence>

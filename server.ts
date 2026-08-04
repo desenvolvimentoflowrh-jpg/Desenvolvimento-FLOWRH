@@ -14,8 +14,108 @@ import {
   POLICY_CONTEXT,
   RESUME_SCREENING_PROMPT
 } from "./config";
+import { INITIAL_COMPANIES, INITIAL_USERS, INITIAL_TIME_RECORDS } from "./src/utils/mockData";
+import { TimeRecord } from "./src/types";
 
 dotenv.config();
+
+interface BankLog {
+  id: string;
+  userId: string;
+  hours: number;
+  description: string;
+  type: "credit" | "debit";
+  createdAt: string;
+  updatedBy: string;
+}
+
+const bankLogsStorage: BankLog[] = [
+  {
+    id: "log-1",
+    userId: "user-1",
+    hours: 2.5,
+    description: "Ajuste referente a plantão de fim de semana",
+    type: "credit",
+    createdAt: new Date(Date.now() - 86400000 * 3).toISOString(),
+    updatedBy: "Desenvolvimento Flow RH"
+  },
+  {
+    id: "log-2",
+    userId: "user-2",
+    hours: 1.0,
+    description: "Atraso compensado em banco de horas",
+    type: "debit",
+    createdAt: new Date(Date.now() - 86400000 * 5).toISOString(),
+    updatedBy: "Carlos Eduardo"
+  }
+];
+
+function formatDateYYYYMMDD(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function calculateBusinessDays(startDate: Date, endDate: Date): number {
+  let count = 0;
+  const cur = new Date(startDate);
+  cur.setHours(0, 0, 0, 0);
+  const end = new Date(endDate);
+  end.setHours(23, 59, 59, 999);
+
+  while (cur <= end) {
+    const dayOfWeek = cur.getDay(); // 0 = Sun, 1 = Mon, ..., 6 = Sat
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      count++;
+    }
+    cur.setDate(cur.getDate() + 1);
+  }
+  return count > 0 ? count : 1;
+}
+
+function calculateWorkedMinutesForUser(records: TimeRecord[]): number {
+  const sorted = [...records].sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  );
+
+  let totalMinutes = 0;
+  let lastEntrada: Date | null = null;
+  let lastAlmocoVolta: Date | null = null;
+
+  for (const rec of sorted) {
+    const t = new Date(rec.timestamp);
+    if (rec.type === "entrada") {
+      lastEntrada = t;
+    } else if (rec.type === "almoco_ida" && lastEntrada) {
+      const diffMs = t.getTime() - lastEntrada.getTime();
+      if (diffMs > 0) totalMinutes += Math.round(diffMs / 60000);
+      lastEntrada = null;
+    } else if (rec.type === "almoco_volta") {
+      lastAlmocoVolta = t;
+    } else if (rec.type === "saida") {
+      if (lastAlmocoVolta) {
+        const diffMs = t.getTime() - lastAlmocoVolta.getTime();
+        if (diffMs > 0) totalMinutes += Math.round(diffMs / 60000);
+        lastAlmocoVolta = null;
+      } else if (lastEntrada) {
+        const diffMs = t.getTime() - lastEntrada.getTime();
+        if (diffMs > 0) totalMinutes += Math.round(diffMs / 60000);
+        lastEntrada = null;
+      }
+    }
+  }
+
+  return totalMinutes;
+}
+
+function getUserBankLogsAdjustment(userId: string): number {
+  return bankLogsStorage
+    .filter((log) => log.userId === userId)
+    .reduce((sum, log) => {
+      return log.type === "credit" ? sum + log.hours : sum - log.hours;
+    }, 0);
+}
 
 async function startServer() {
   const app = express();
@@ -180,6 +280,42 @@ async function startServer() {
     next();
   }
 
+  // Middleware para verificação de permissões RBAC no Backend
+  function authorize(requiredRoles: string[]) {
+    return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+      const roleHeader = (req.headers["x-user-role"] || req.headers["authorization"]) as string | undefined;
+      let userRole = roleHeader?.toLowerCase().trim();
+
+      if (!userRole && req.body && req.body.currentUserRole) {
+        userRole = String(req.body.currentUserRole).toLowerCase().trim();
+      }
+
+      if (!userRole && req.body && req.body.currentUser && req.body.currentUser.role) {
+        userRole = String(req.body.currentUser.role).toLowerCase().trim();
+      }
+
+      const normalizedRequired = requiredRoles.map((r) => r.toLowerCase().trim());
+
+      const isAllowed = userRole && normalizedRequired.some((reqRole) => {
+        if (userRole === reqRole) return true;
+        if ((reqRole === "gestor" || reqRole === "hr_manager") && (userRole === "hr_manager" || userRole === "gestor")) return true;
+        if ((reqRole === "lider" || reqRole === "supervisor") && (userRole === "supervisor" || userRole === "lider")) return true;
+        if ((reqRole === "colaborador" || reqRole === "collaborator") && (userRole === "collaborator" || userRole === "colaborador")) return true;
+        if (reqRole === "super_admin" && userRole === "super_admin") return true;
+        return false;
+      });
+
+      if (!isAllowed) {
+        res.status(403).json({
+          error: "Acesso Negado: Seu papel de usuário não possui permissão para executar esta ação no backend."
+        });
+        return;
+      }
+
+      next();
+    };
+  }
+
   // API Route: Flow AI assistant
   app.post("/api/flow-ai", rateLimiter, async (req, res) => {
     const { message, history, context } = req.body;
@@ -294,7 +430,7 @@ Como posso ajudar você hoje?`;
   });
 
   // API Route: Resume Screening / Triagem de Currículos
-  app.post("/api/screen-resume", rateLimiter, async (req, res) => {
+  app.post("/api/screen-resume", rateLimiter, authorize(["hr_manager", "super_admin", "supervisor", "gestor", "lider"]), async (req, res) => {
     const { resumeText, candidateName, targetRole } = req.body;
 
     if (!resumeText) {
@@ -345,6 +481,121 @@ Como posso ajudar você hoje?`;
       const fallbackEval = generateSimulatedScreening(candidate, role, cleanResumeText);
       res.json(fallbackEval);
     }
+  });
+
+  // API Route: Controle e Gestão de Ponto (Banco de Horas)
+  app.get("/api/ponto/gestao", authorize(["hr_manager", "super_admin", "gestor"]), (req, res) => {
+    try {
+      const now = new Date();
+      const defaultStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const defaultEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+      const startStr = (req.query.start as string) || formatDateYYYYMMDD(defaultStart);
+      const endStr = (req.query.end as string) || formatDateYYYYMMDD(defaultEnd);
+
+      const startDate = new Date(`${startStr}T00:00:00.000Z`);
+      const endDate = new Date(`${endStr}T23:59:59.999Z`);
+
+      const businessDays = calculateBusinessDays(startDate, endDate);
+      const expectedHoursPerUser = businessDays * 8;
+
+      const periodRecords = INITIAL_TIME_RECORDS.filter((rec) => {
+        const recDate = new Date(rec.timestamp);
+        return recDate >= startDate && recDate <= endDate;
+      });
+
+      const resultData = INITIAL_USERS.map((user) => {
+        const userRecords = periodRecords.filter((r) => r.user_id === user.id);
+        const workedMinutes = calculateWorkedMinutesForUser(userRecords);
+        const workedHours = Math.round((workedMinutes / 60) * 100) / 100;
+
+        const bankAdjustment = getUserBankLogsAdjustment(user.id);
+
+        const rawBalance = (workedHours - expectedHoursPerUser) + bankAdjustment + (user.points_balance || 0);
+        const balanceHours = Math.round(rawBalance * 100) / 100;
+
+        const comp = INITIAL_COMPANIES.find((c) => c.id === user.company_id);
+
+        return {
+          userId: user.id,
+          name: user.name,
+          email: user.email,
+          companyName: comp ? comp.name : "Empresa",
+          companyId: user.company_id,
+          department: user.department,
+          role: user.role,
+          avatar: user.avatar,
+          active: user.active !== false,
+          workedHours,
+          expectedHours: expectedHoursPerUser,
+          bankAdjustment,
+          balanceHours
+        };
+      });
+
+      // Sort descending by balanceHours (highest positive first, then largest negative)
+      resultData.sort((a, b) => b.balanceHours - a.balanceHours);
+
+      res.json({
+        period: { start: startStr, end: endStr },
+        businessDays,
+        expectedHoursPerUser,
+        data: resultData
+      });
+    } catch (err: any) {
+      console.error("Erro na rota /api/ponto/gestao:", err);
+      res.status(500).json({ error: "Erro interno ao calcular gestão de ponto" });
+    }
+  });
+
+  // API Route: Obter extrato de banco de horas por usuário
+  app.get("/api/ponto/banco-horas/:userId", authorize(["collaborator", "supervisor", "hr_manager", "super_admin", "gestor", "lider", "colaborador"]), (req, res) => {
+    const { userId } = req.params;
+    const userLogs = bankLogsStorage.filter((log) => log.userId === userId);
+    const totalAdjustment = getUserBankLogsAdjustment(userId);
+    res.json({ userId, logs: userLogs, totalAdjustment });
+  });
+
+  // API Route: Adicionar lançamento no banco de horas
+  app.post("/api/ponto/banco-horas", authorize(["hr_manager", "super_admin", "gestor"]), (req, res) => {
+    const { userId, hours, description, type, updatedBy } = req.body;
+    if (!userId || hours === undefined || !type) {
+      res.status(400).json({ error: "userId, hours e type são obrigatórios" });
+      return;
+    }
+
+    const numHours = Math.abs(parseFloat(hours));
+    if (isNaN(numHours) || numHours <= 0) {
+      res.status(400).json({ error: "Quantidade de horas inválida" });
+      return;
+    }
+
+    const newLog: BankLog = {
+      id: `log-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      userId,
+      hours: numHours,
+      description: description || (type === "credit" ? "Crédito de horas" : "Débito de horas"),
+      type: type === "debit" ? "debit" : "credit",
+      createdAt: new Date().toISOString(),
+      updatedBy: updatedBy || "Gestor RH"
+    };
+
+    bankLogsStorage.unshift(newLog);
+
+    const userLogs = bankLogsStorage.filter((log) => log.userId === userId);
+    const totalAdjustment = getUserBankLogsAdjustment(userId);
+
+    res.json({ success: true, log: newLog, logs: userLogs, totalAdjustment });
+  });
+
+  // API Route: Deletar lançamento do banco de horas
+  app.delete("/api/ponto/banco-horas/:logId", authorize(["hr_manager", "super_admin", "gestor"]), (req, res) => {
+    const { logId } = req.params;
+    const idx = bankLogsStorage.findIndex((l) => l.id === logId);
+    if (idx !== -1) {
+      bankLogsStorage.splice(idx, 1);
+    }
+    res.json({ success: true, message: "Lançamento removido do banco de horas" });
   });
 
   // Serve static files in production or inject Vite in development

@@ -11,6 +11,7 @@ import {
   Settings
 } from "lucide-react";
 import { UserProfile, UserRole } from "../types";
+import { canAccessGestao } from "../utils/rbac";
 
 interface SidebarProps {
   currentTab: string;
@@ -140,28 +141,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
       </button>
 
-      {/* Gestão / Empresa Icon */}
-      <button
-        onClick={() => handleTabClick("funcionarios")}
-        className={`flex flex-col items-center group relative w-14 h-14 rounded-2xl transition-all duration-300 cursor-pointer ${
-          isTabActive("funcionarios", ["empresa"])
-            ? "bg-[#0043FF] text-white scale-105 shadow-lg shadow-blue-500/20 border border-blue-400/30"
-            : "bg-white/5 text-slate-400 hover:text-white hover:bg-white/10 border border-white/5"
-        }`}
-        title="Sua Empresa"
-      >
-        <div className="flex-1 flex items-center justify-center pt-1.5">
-          <Users
-            className={`w-5 h-5 transition-transform duration-300 group-hover:scale-110 ${
-              isTabActive("funcionarios", ["empresa"]) ? "text-white" : "text-[#3B82F6]"
-            }`}
-          />
-        </div>
-        <span className="text-[9px] pb-1.5 font-bold tracking-tight">Gestão</span>
-        {isTabActive("funcionarios", ["empresa"]) && (
-          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-7 bg-[#0043FF] rounded-r" />
-        )}
-      </button>
+      {/* Gestão / Empresa Icon - Não exibido para colaboradores */}
+      {canAccessGestao(currentUser) && (
+        <button
+          onClick={() => handleTabClick("funcionarios")}
+          className={`flex flex-col items-center group relative w-14 h-14 rounded-2xl transition-all duration-300 cursor-pointer ${
+            isTabActive("funcionarios", ["empresa"])
+              ? "bg-[#0043FF] text-white scale-105 shadow-lg shadow-blue-500/20 border border-blue-400/30"
+              : "bg-white/5 text-slate-400 hover:text-white hover:bg-white/10 border border-white/5"
+          }`}
+          title="Sua Empresa"
+        >
+          <div className="flex-1 flex items-center justify-center pt-1.5">
+            <Users
+              className={`w-5 h-5 transition-transform duration-300 group-hover:scale-110 ${
+                isTabActive("funcionarios", ["empresa"]) ? "text-white" : "text-[#3B82F6]"
+              }`}
+            />
+          </div>
+          <span className="text-[9px] pb-1.5 font-bold tracking-tight">Gestão</span>
+          {isTabActive("funcionarios", ["empresa"]) && (
+            <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-7 bg-[#0043FF] rounded-r" />
+          )}
+        </button>
+      )}
 
       {/* Talentos / PDI Icon */}
       <button
@@ -236,26 +239,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       <hr className="w-10 border-slate-800/60 my-1" />
 
-      {/* Simulator & Setup Icon */}
+      {/* Configurações do Sistema Icon */}
       <button
-        onClick={() => handleTabClick("onboarding")}
+        onClick={() => handleTabClick("configuracoes")}
         className={`flex flex-col items-center group relative w-14 h-14 rounded-2xl transition-all duration-300 cursor-pointer ${
-          isTabActive("onboarding", ["admin"])
-            ? "bg-[#EF4444] text-white scale-105 shadow-lg shadow-red-500/20 border border-red-400/30"
+          isTabActive("configuracoes", ["settings", "config"])
+            ? "bg-[#64748B] text-white scale-105 shadow-lg shadow-slate-500/20 border border-slate-400/30"
             : "bg-white/5 text-slate-400 hover:text-white hover:bg-white/10 border border-white/5"
         }`}
-        title="Simulador de Onboarding & Configurações"
+        title="Configurações do Sistema"
       >
         <div className="flex-1 flex items-center justify-center pt-1.5">
           <Settings
             className={`w-5 h-5 transition-transform duration-300 group-hover:scale-110 ${
-              isTabActive("onboarding", ["admin"]) ? "text-white" : "text-red-400"
+              isTabActive("configuracoes", ["settings", "config"]) ? "text-white" : "text-slate-400"
             }`}
           />
         </div>
         <span className="text-[9px] pb-1.5 font-bold tracking-tight">Config</span>
-        {isTabActive("onboarding", ["admin"]) && (
-          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-7 bg-[#EF4444] rounded-r" />
+        {isTabActive("configuracoes", ["settings", "config"]) && (
+          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-7 bg-[#64748B] rounded-r" />
         )}
       </button>
     </aside>

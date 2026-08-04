@@ -17,11 +17,20 @@ import {
   TrendingUp,
   TrendingDown,
   Sun,
-  Sunset
+  Sunset,
+  Plus,
+  Edit2,
+  Trash2,
+  ShieldCheck
 } from "lucide-react";
-import { UserProfile, TimeRecord, UserRole } from "../types";
+import { UserProfile, TimeRecord, UserRole, PontoAuditLog } from "../types";
+import { canManagePontoFull } from "../utils/rbac";
 import { useClock } from "../hooks/useClock";
 import { ReceiptModal } from "../components/ReceiptModal";
+import { AjustePontoModal } from "../components/AjustePontoModal";
+import { ManualPontoModal } from "../components/ManualPontoModal";
+import { PontoAuditTable } from "../components/PontoAuditTable";
+import { dataService } from "../services/dataService";
 import {
   getTodayRecords,
   getNextSuggestedPunch,
@@ -82,6 +91,48 @@ export const Ponto: React.FC<PontoProps> = ({
   const [selectedRecordForReceipt, setSelectedRecordForReceipt] =
     useState<TimeRecord | null>(null);
   const [isReceiptOpen, setIsReceiptOpen] = useState(false);
+  const [isAjusteModalOpen, setIsAjusteModalOpen] = useState(false);
+  const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  const [editingRecordForManual, setEditingRecordForManual] = useState<TimeRecord | null>(null);
+
+  const [auditLogs, setAuditLogs] = useState<PontoAuditLog[]>(() => dataService.getAuditLogs());
+
+  useEffect(() => {
+    dataService.saveAuditLogs(auditLogs);
+  }, [auditLogs]);
+
+  const handleAddOrUpdateManualRecord = (record: TimeRecord, auditLog: PontoAuditLog) => {
+    onAddRecord(record);
+    setAuditLogs((prev) => [auditLog, ...prev]);
+  };
+
+  const handleDeleteRecordWithAudit = (record: TimeRecord) => {
+    const justification = window.prompt("Digite a justificativa legal para a exclusão deste registro (obrigatório para auditoria):");
+    if (!justification || justification.trim().length < 5) {
+      alert("A exclusão exige uma justificativa válida de no mínimo 5 caracteres.");
+      return;
+    }
+
+    const auditLog: PontoAuditLog = {
+      id: `log-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      modified_by_id: currentUser.id,
+      modified_by_name: currentUser.name,
+      modified_by_avatar: currentUser.avatar,
+      modified_by_role: currentUser.role,
+      record_id: record.id,
+      target_user_id: record.user_id,
+      target_user_name: record.user_name || currentUser.name,
+      action_type: "manual_deletion",
+      record_type: record.type,
+      original_value: new Date(record.timestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+      new_value: "EXCLUÍDO",
+      justification: justification.trim(),
+      timestamp: new Date().toISOString()
+    };
+
+    setAuditLogs((prev) => [auditLog, ...prev]);
+    alert("Exclusão registrada com sucesso no log de auditoria!");
+  };
 
   const [isLocating, setIsLocating] = useState(false);
 
@@ -269,14 +320,46 @@ export const Ponto: React.FC<PontoProps> = ({
   const startCamera = async () => {
     setCameraError(null);
     setCapturedPhoto(null);
-    try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: "user",
-          width: { ideal: 640 },
-          height: { ideal: 480 }
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setCameraError(
+        "Seu dispositivo ou navegador não possui suporte direto a câmera. A foto do seu perfil será utilizada para a validação do ponto."
+      );
+      setCameraActive(false);
+      return;
+    }
+
+    if (navigator.mediaDevices.enumerateDevices) {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const hasVideoInput = devices.some((d) => d.kind === "videoinput");
+        if (!hasVideoInput && devices.length > 0) {
+          setCameraError(
+            "Nenhuma câmera física encontrada no dispositivo. A validação de ponto usará a sua foto de perfil cadastrada."
+          );
+          setCameraActive(false);
+          return;
         }
-      });
+      } catch (enumErr) {
+        console.warn("Aviso ao verificar lista de dispositivos de vídeo:", enumErr);
+      }
+    }
+
+    try {
+      let mediaStream: MediaStream;
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: "user",
+            width: { ideal: 640 },
+            height: { ideal: 480 }
+          }
+        });
+      } catch (firstErr) {
+        console.warn("Tentando abrir câmera com parâmetros genéricos...", firstErr);
+        mediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      }
+
       streamRef.current = mediaStream;
       setCameraActive(true);
       setTimeout(() => {
@@ -285,10 +368,21 @@ export const Ponto: React.FC<PontoProps> = ({
         }
       }, 100);
     } catch (err) {
-      console.error("Erro ao acessar câmera:", err);
-      setCameraError(
-        "Não foi possível acessar a câmera. Verifique as permissões do navegador ou se há uma câmera disponível."
-      );
+      console.warn("Informação: Câmera não pôde ser ativada (fallback ativado):", err);
+      const errObj = err as Error;
+      if (errObj?.name === "NotFoundError" || errObj?.name === "DevicesNotFoundError" || String(errObj).includes("Requested device not found")) {
+        setCameraError(
+          "Nenhuma câmera física foi encontrada neste computador/dispositivo. A foto do seu perfil será utilizada para registrar o ponto."
+        );
+      } else if (errObj?.name === "NotAllowedError" || errObj?.name === "PermissionDeniedError") {
+        setCameraError(
+          "Permissão de uso da câmera negada no navegador. Você pode autorizar o acesso ou prosseguir utilizando sua foto de perfil."
+        );
+      } else {
+        setCameraError(
+          "Câmera indisponível no momento. O sistema usará automaticamente a foto do seu perfil para a validação."
+        );
+      }
       setCameraActive(false);
     }
   };
@@ -444,11 +538,38 @@ export const Ponto: React.FC<PontoProps> = ({
           </p>
         </div>
 
-        <div className="bg-white/10 backdrop-blur-md border border-white/20 px-6 py-3 rounded-2xl text-center z-10">
-          <div className="text-[10px] uppercase font-bold text-purple-200 tracking-wider">
-            Hora Oficial do Servidor
+        <div className="flex flex-col sm:flex-row items-center gap-3 z-10">
+          <div className="bg-white/10 backdrop-blur-md border border-white/20 px-6 py-3 rounded-2xl text-center">
+            <div className="text-[10px] uppercase font-bold text-purple-200 tracking-wider">
+              Hora Oficial do Servidor
+            </div>
+            <div className="text-3xl font-black font-mono tracking-wider">{timeFormatted}</div>
           </div>
-          <div className="text-3xl font-black font-mono tracking-wider">{timeFormatted}</div>
+
+          <div className="flex flex-col sm:flex-row items-center gap-2">
+            {canManagePontoFull(currentUser) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingRecordForManual(null);
+                  setIsManualModalOpen(true);
+                }}
+                className="bg-purple-950/40 hover:bg-purple-950/70 text-white font-bold px-3.5 py-3 rounded-2xl text-xs border border-white/20 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm backdrop-blur-md w-full sm:w-auto"
+              >
+                <Plus className="w-4 h-4" />
+                Inclusão Manual (Auditoria)
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setIsAjusteModalOpen(true)}
+              className="bg-white/20 hover:bg-white/30 text-white font-bold px-3.5 py-3 rounded-2xl text-xs border border-white/30 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm backdrop-blur-md w-full sm:w-auto"
+            >
+              <FileText className="w-4 h-4" />
+              Solicitar ajuste de ponto
+            </button>
+          </div>
         </div>
       </div>
 
@@ -456,7 +577,7 @@ export const Ponto: React.FC<PontoProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Registration Form Box */}
         <div className="lg:col-span-6 bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm p-6 space-y-6">
-          <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
+          <div className="flex flex-wrap items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4 gap-2">
             <div>
               <h3 className="font-bold text-slate-800 dark:text-slate-100 text-sm">
                 Registrar Marcação de Ponto
@@ -465,9 +586,19 @@ export const Ponto: React.FC<PontoProps> = ({
                 Sequência inteligente e validação em tempo real
               </p>
             </div>
-            <span className="text-[10px] bg-purple-50 dark:bg-purple-950/60 text-[#8B5CF6] dark:text-purple-300 px-2.5 py-1 rounded-full font-bold uppercase border border-purple-200 dark:border-purple-800">
-              GPS & Biometria
-            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsAjusteModalOpen(true)}
+                className="text-[11px] bg-purple-50 dark:bg-purple-950/60 hover:bg-purple-100 dark:hover:bg-purple-900 text-[#8B5CF6] dark:text-purple-300 px-3 py-1.5 rounded-xl font-bold border border-purple-200 dark:border-purple-800 flex items-center gap-1.5 transition-all cursor-pointer shadow-sm"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                Solicitar ajuste de ponto
+              </button>
+              <span className="hidden sm:inline-block text-[10px] bg-purple-50 dark:bg-purple-950/60 text-[#8B5CF6] dark:text-purple-300 px-2.5 py-1 rounded-full font-bold uppercase border border-purple-200 dark:border-purple-800">
+                GPS & Biometria
+              </span>
+            </div>
           </div>
 
           {pontoSuccess && (
@@ -678,8 +809,21 @@ export const Ponto: React.FC<PontoProps> = ({
                   </div>
 
                   {cameraError && (
-                    <div className="text-[11px] text-rose-400 bg-rose-950/60 border border-rose-800 p-2 rounded-xl max-w-xs mx-auto font-medium">
-                      {cameraError}
+                    <div className="space-y-2 max-w-xs mx-auto">
+                      <div className="text-[11px] text-rose-400 bg-rose-950/60 border border-rose-800 p-2 rounded-xl font-medium">
+                        {cameraError}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCapturedPhoto(currentUser.avatar);
+                          setCameraError(null);
+                        }}
+                        className="w-full px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-purple-300 border border-purple-700/60 font-bold text-xs rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5"
+                      >
+                        <UserCheck className="w-3.5 h-3.5" />
+                        Usar Foto de Perfil para Validação
+                      </button>
                     </div>
                   )}
 
@@ -942,7 +1086,7 @@ export const Ponto: React.FC<PontoProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                       <div className="text-right">
                         <div className="font-mono font-bold text-slate-900 dark:text-slate-100 text-xs">
                           {new Date(rec.timestamp).toLocaleTimeString("pt-BR", {
@@ -954,8 +1098,44 @@ export const Ponto: React.FC<PontoProps> = ({
                           {new Date(rec.timestamp).toLocaleDateString("pt-BR")}
                         </div>
                       </div>
-                      <div className="p-1 rounded-lg text-slate-400 group-hover:text-purple-600 dark:group-hover:text-purple-400 group-hover:bg-purple-100/50 dark:group-hover:bg-slate-700 transition-all">
-                        <FileText className="w-4 h-4" />
+
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          title="Visualizar Comprovante"
+                          onClick={() => {
+                            setSelectedRecordForReceipt(rec);
+                            setIsReceiptOpen(true);
+                          }}
+                          className="p-1 rounded-lg text-slate-400 hover:text-purple-600 dark:hover:text-purple-400 hover:bg-purple-100/50 dark:hover:bg-slate-700 transition-all cursor-pointer"
+                        >
+                          <FileText className="w-4 h-4" />
+                        </button>
+
+                        {canManagePontoFull(currentUser) && (
+                          <>
+                            <button
+                              type="button"
+                              title="Editar Registro Manualmente"
+                              onClick={() => {
+                                setEditingRecordForManual(rec);
+                                setIsManualModalOpen(true);
+                              }}
+                              className="p-1 rounded-lg text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-100/50 dark:hover:bg-slate-700 transition-all cursor-pointer"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+
+                            <button
+                              type="button"
+                              title="Excluir Registro com Justificativa"
+                              onClick={() => handleDeleteRecordWithAudit(rec)}
+                              className="p-1 rounded-lg text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-100/50 dark:hover:bg-slate-700 transition-all cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -966,12 +1146,35 @@ export const Ponto: React.FC<PontoProps> = ({
         </div>
       </div>
 
+      {/* Tabela de Histórico do Log de Auditoria de Ponto (Apenas Gestores e Super Admins) */}
+      {canManagePontoFull(currentUser) && <PontoAuditTable auditLogs={auditLogs} />}
+
       {/* Comprovante de Registro de Ponto Modal */}
       <ReceiptModal
         isOpen={isReceiptOpen}
         onClose={() => setIsReceiptOpen(false)}
         record={selectedRecordForReceipt}
         currentUser={currentUser}
+      />
+
+      {/* Modal de Solicitação de Ajuste de Ponto */}
+      <AjustePontoModal
+        isOpen={isAjusteModalOpen}
+        onClose={() => setIsAjusteModalOpen(false)}
+        currentUser={currentUser}
+      />
+
+      {/* Modal de Inclusão e Edição Manual com Auditoria */}
+      <ManualPontoModal
+        isOpen={isManualModalOpen}
+        onClose={() => {
+          setIsManualModalOpen(false);
+          setEditingRecordForManual(null);
+        }}
+        currentUser={currentUser}
+        activeCompanyId={activeCompanyId}
+        editingRecord={editingRecordForManual}
+        onAddOrUpdateRecord={handleAddOrUpdateManualRecord}
       />
     </motion.div>
   );

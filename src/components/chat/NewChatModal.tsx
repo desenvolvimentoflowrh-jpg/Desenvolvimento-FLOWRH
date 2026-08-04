@@ -4,6 +4,7 @@ import { Modal } from "../Modal";
 import { UserProfile } from "../../types";
 import { AvatarWithStatus } from "../AvatarWithStatus";
 import { UserPresenceStatus } from "../../types/presence";
+import { canCreateChatGroup } from "../../utils/rbac";
 
 interface NewChatModalProps {
   isOpen: boolean;
@@ -36,8 +37,14 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
 
   if (!isOpen) return null;
 
+  const canCreateGroup = canCreateChatGroup(currentUser);
+
+  // Filter users belonging to the SAME company for private messages
   const availableUsers = allUsers.filter(
-    (u) => u.email !== currentUser.email && u.active !== false
+    (u) =>
+      u.email !== currentUser.email &&
+      u.active !== false &&
+      (u.company_id === currentUser.company_id || !currentUser.company_id)
   );
 
   const filteredUsers = availableUsers.filter(
@@ -75,33 +82,35 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Nova Conversa no Flow RH">
       <div className="p-4 space-y-4">
-        {/* Tab Selection */}
-        <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
-          <button
-            type="button"
-            onClick={() => setActiveTab("direct")}
-            className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
-              activeTab === "direct"
-                ? "bg-[#0043FF] text-white shadow-xs"
-                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-            }`}
-          >
-            <MessageSquare className="w-4 h-4" />
-            <span>Mensagem Direta (DM)</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("group")}
-            className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
-              activeTab === "group"
-                ? "bg-[#0043FF] text-white shadow-xs"
-                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            <span>Novo Grupo de Setor</span>
-          </button>
-        </div>
+        {/* Tab Selection - Grupo de Setor apenas para Gestor + Super Admin */}
+        {canCreateGroup && (
+          <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+            <button
+              type="button"
+              onClick={() => setActiveTab("direct")}
+              className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
+                activeTab === "direct"
+                  ? "bg-[#0043FF] text-white shadow-xs"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              <MessageSquare className="w-4 h-4" />
+              <span>Mensagem Direta (DM)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("group")}
+              className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
+                activeTab === "group"
+                  ? "bg-[#0043FF] text-white shadow-xs"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              <Users className="w-4 h-4" />
+              <span>Novo Grupo de Setor</span>
+            </button>
+          </div>
+        )}
 
         {activeTab === "direct" ? (
           <div className="space-y-3">

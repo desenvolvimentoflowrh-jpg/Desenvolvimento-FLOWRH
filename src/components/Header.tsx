@@ -235,33 +235,6 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <>
-      {/* Top Multi-Tenant Control Strip */}
-      <div className="bg-slate-900 text-slate-300 text-[11px] py-1 px-6 flex items-center justify-between border-b border-slate-800 relative z-50">
-        <div className="flex items-center gap-2">
-          <Building className="w-3.5 h-3.5 text-blue-400" />
-          <span className="font-semibold text-slate-400">Ambiente Tenant:</span>
-          <select
-            value={activeCompanyId}
-            onChange={(e) => handleSwitchCompany(e.target.value)}
-            className="bg-slate-800 text-white font-bold border border-slate-700 rounded px-2 py-0.5 text-[11px] focus:outline-none focus:border-blue-500 cursor-pointer"
-          >
-            {companies.map((comp) => (
-              <option key={comp.id} value={comp.id}>
-                🏢 {comp.name} ({comp.segment})
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <button
-          onClick={onResetDatabase}
-          className="bg-amber-700 hover:bg-amber-800 text-white text-[10px] uppercase tracking-wider py-0.5 px-2 rounded flex items-center gap-1 transition"
-          title="Resetar banco de dados local"
-        >
-          <RefreshCw className="w-3 h-3" /> Resetar Banco
-        </button>
-      </div>
-
       {/* Main App Header */}
       <header className="bg-[#0043FF] text-white py-3 px-6 flex items-center justify-between shadow-md sticky top-0 z-40 relative">
         <div className="flex items-center gap-3">

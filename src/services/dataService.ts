@@ -4,7 +4,8 @@ import {
   Invitation,
   Training,
   TimeRecord,
-  Post
+  Post,
+  PontoAuditLog
 } from "../types";
 import {
   INITIAL_COMPANIES,
@@ -12,7 +13,8 @@ import {
   INITIAL_INVITATIONS,
   INITIAL_TRAININGS,
   INITIAL_TIME_RECORDS,
-  INITIAL_POSTS
+  INITIAL_POSTS,
+  INITIAL_AUDIT_LOGS
 } from "../utils/mockData";
 
 export const dataService = {
@@ -86,5 +88,22 @@ export const dataService = {
   },
   savePosts(posts: Post[]): void {
     localStorage.setItem("flow_posts", JSON.stringify(posts));
+  },
+
+  getAuditLogs(): PontoAuditLog[] {
+    try {
+      const saved = localStorage.getItem("flow_ponto_audit_logs");
+      return saved ? JSON.parse(saved) : INITIAL_AUDIT_LOGS;
+    } catch {
+      return INITIAL_AUDIT_LOGS;
+    }
+  },
+  saveAuditLogs(logs: PontoAuditLog[]): void {
+    localStorage.setItem("flow_ponto_audit_logs", JSON.stringify(logs));
+  },
+  addAuditLog(log: PontoAuditLog): void {
+    const logs = this.getAuditLogs();
+    const updated = [log, ...logs];
+    this.saveAuditLogs(updated);
   }
 };

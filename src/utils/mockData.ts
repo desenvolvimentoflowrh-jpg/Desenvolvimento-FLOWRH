@@ -1,4 +1,4 @@
-import { Company, UserProfile, UserRole, Invitation, Training, TimeRecord, Post } from "../types";
+import { Company, UserProfile, UserRole, Invitation, Training, TimeRecord, Post, PontoAuditLog } from "../types";
 
 export const INITIAL_COMPANIES: Company[] = [
   {
@@ -27,7 +27,13 @@ export const INITIAL_USERS: UserProfile[] = [
     avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
     points_balance: 8.5,
     active_streak: 5,
-    birth_date: "1995-05-12"
+    birth_date: "1995-05-12",
+    active: true,
+    onboardingStatus: "concluido",
+    contractStatus: "ativo",
+    onboardingStartDate: "2024-03-15",
+    onboardingEndDate: "2024-03-22",
+    onboardingObservations: "Documentos validados e integração concluída."
   },
   {
     id: "user-2",
@@ -40,7 +46,13 @@ export const INITIAL_USERS: UserProfile[] = [
     avatar: "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150&auto=format&fit=crop&q=80",
     points_balance: -2.0,
     active_streak: 12,
-    birth_date: "1998-08-24"
+    birth_date: "1998-08-24",
+    active: true,
+    onboardingStatus: "em_andamento",
+    contractStatus: "ativo",
+    onboardingStartDate: "2025-01-10",
+    onboardingEndDate: "2025-02-10",
+    onboardingObservations: "Aguardando conclusão do treinamento de segurança."
   },
   {
     id: "user-3",
@@ -53,7 +65,13 @@ export const INITIAL_USERS: UserProfile[] = [
     avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
     points_balance: 4.0,
     active_streak: 8,
-    birth_date: "1997-11-03"
+    birth_date: "1997-11-03",
+    active: true,
+    onboardingStatus: "concluido",
+    contractStatus: "ativo",
+    onboardingStartDate: "2024-09-01",
+    onboardingEndDate: "2024-09-10",
+    onboardingObservations: "Apresentação de equipe concluída com sucesso."
   },
   {
     id: "user-4",
@@ -66,7 +84,13 @@ export const INITIAL_USERS: UserProfile[] = [
     avatar: "https://images.unsplash.com/photo-1560250097-0b93528c311a?w=150&auto=format&fit=crop&q=80",
     points_balance: 14.5,
     active_streak: 3,
-    birth_date: "1988-02-15"
+    birth_date: "1988-02-15",
+    active: true,
+    onboardingStatus: "concluido",
+    contractStatus: "ativo",
+    onboardingStartDate: "2022-05-20",
+    onboardingEndDate: "2022-05-27",
+    onboardingObservations: "Contrato assinado digitalmente."
   },
   {
     id: "user-6",
@@ -79,7 +103,13 @@ export const INITIAL_USERS: UserProfile[] = [
     avatar: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80",
     points_balance: 6.0,
     active_streak: 15,
-    birth_date: "1991-07-30"
+    birth_date: "1991-07-30",
+    active: false,
+    onboardingStatus: "pendente",
+    contractStatus: "pendente",
+    onboardingStartDate: "2026-08-01",
+    onboardingEndDate: "2026-08-30",
+    onboardingObservations: "Convite enviado. Aguardando envio de documentos."
   },
   // Aero RH solutions users
   {
@@ -93,7 +123,10 @@ export const INITIAL_USERS: UserProfile[] = [
     avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&auto=format&fit=crop&q=80",
     points_balance: 2.0,
     active_streak: 2,
-    birth_date: "1985-09-18"
+    birth_date: "1985-09-18",
+    active: true,
+    onboardingStatus: "concluido",
+    contractStatus: "ativo"
   }
 ];
 
@@ -279,5 +312,56 @@ export const INITIAL_POSTS: Post[] = [
     },
     comments: [],
     created_at: "2026-07-13T11:00:00Z"
+  }
+];
+
+export const INITIAL_AUDIT_LOGS: PontoAuditLog[] = [
+  {
+    id: "log-1",
+    modified_by_id: "user-1",
+    modified_by_name: "Desenvolvimento Flow RH",
+    modified_by_avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+    modified_by_role: UserRole.SUPER_ADMIN,
+    record_id: "rec-101",
+    target_user_id: "user-2",
+    target_user_name: "Lucas Silva",
+    action_type: "manual_edit",
+    record_type: "entrada",
+    original_value: "08:35",
+    new_value: "08:00",
+    justification: "Correção de atraso indevido devido a falha técnica na catraca do edifício.",
+    timestamp: "2026-08-02T14:15:22.000Z"
+  },
+  {
+    id: "log-2",
+    modified_by_id: "user-4",
+    modified_by_name: "Carlos Eduardo",
+    modified_by_avatar: "https://images.unsplash.com/photo-1560250097-0b93528c311a?w=150&auto=format&fit=crop&q=80",
+    modified_by_role: UserRole.HR_MANAGER,
+    record_id: "rec-102",
+    target_user_id: "user-3",
+    target_user_name: "Ana Souza",
+    action_type: "manual_creation",
+    record_type: "saida",
+    original_value: "--",
+    new_value: "17:30",
+    justification: "Inclusão manual de registro de saída que não foi computado devido a viagem a trabalho.",
+    timestamp: "2026-08-01T18:40:05.000Z"
+  },
+  {
+    id: "log-3",
+    modified_by_id: "user-1",
+    modified_by_name: "Desenvolvimento Flow RH",
+    modified_by_avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+    modified_by_role: UserRole.SUPER_ADMIN,
+    record_id: "rec-103",
+    target_user_id: "user-2",
+    target_user_name: "Lucas Silva",
+    action_type: "ajuste_approval",
+    record_type: "almoco_ida",
+    original_value: "12:45",
+    new_value: "12:00",
+    justification: "Ajuste de ponto aprovado com comprovante de consulta médica anexado pelo colaborador.",
+    timestamp: "2026-07-30T10:05:00.000Z"
   }
 ];

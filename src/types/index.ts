@@ -6,6 +6,11 @@ export enum UserRole {
   SUPERVISOR = "supervisor",
   HR_MANAGER = "hr_manager",
   SUPER_ADMIN = "super_admin",
+
+  // Aliases for Portuguese domain requirements
+  COLABORADOR = "collaborator",
+  LIDER = "supervisor",
+  GESTOR = "hr_manager",
 }
 
 export interface UserProfile {
@@ -22,6 +27,11 @@ export interface UserProfile {
   birth_date?: string; // YYYY-MM-DD
   active?: boolean; // toggle to active or inactive user
   password?: string; // password for login authentication
+  onboardingStatus?: "pendente" | "em_andamento" | "concluido";
+  contractStatus?: "pendente" | "ativo";
+  onboardingStartDate?: string;
+  onboardingEndDate?: string;
+  onboardingObservations?: string;
 }
 
 // Alias requested in domain requirements
@@ -61,6 +71,34 @@ export interface TimeRecord {
   };
   type: "entrada" | "almoco_ida" | "almoco_volta" | "saida";
   status?: "approved" | "pending";
+}
+
+export interface PontoAjuste {
+  id: string;
+  user_id: string;
+  motivo: string;
+  data: string;
+  hora: string;
+  file_path: string;
+  status: "pendente" | "aprovado" | "rejeitado" | string;
+  created_at: string;
+}
+
+export interface PontoAuditLog {
+  id: string;
+  modified_by_id: string;
+  modified_by_name: string;
+  modified_by_avatar: string;
+  modified_by_role: UserRole | string;
+  record_id?: string;
+  target_user_id: string;
+  target_user_name: string;
+  action_type: "manual_creation" | "manual_edit" | "manual_deletion" | "ajuste_approval" | "ajuste_rejection";
+  record_type?: "entrada" | "almoco_ida" | "almoco_volta" | "saida" | string;
+  original_value?: string;
+  new_value?: string;
+  justification: string;
+  timestamp: string;
 }
 
 export interface Goal {
