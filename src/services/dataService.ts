@@ -5,7 +5,10 @@ import {
   Training,
   TimeRecord,
   Post,
-  PontoAuditLog
+  PontoAuditLog,
+  VacationRequest,
+  LicenseRequest,
+  VacationParameters
 } from "../types";
 import {
   INITIAL_COMPANIES,
@@ -14,8 +17,11 @@ import {
   INITIAL_TRAININGS,
   INITIAL_TIME_RECORDS,
   INITIAL_POSTS,
-  INITIAL_AUDIT_LOGS
+  INITIAL_AUDIT_LOGS,
+  INITIAL_VACATION_REQUESTS,
+  INITIAL_LICENSE_REQUESTS
 } from "../utils/mockData";
+import { PARAMETROS_PADRAO } from "../utils/vacationCalculations";
 
 export const dataService = {
   getCompanies(): Company[] {
@@ -105,5 +111,41 @@ export const dataService = {
     const logs = this.getAuditLogs();
     const updated = [log, ...logs];
     this.saveAuditLogs(updated);
+  },
+
+  getVacationRequests(): VacationRequest[] {
+    try {
+      const saved = localStorage.getItem("flow_vacation_requests");
+      return saved ? JSON.parse(saved) : INITIAL_VACATION_REQUESTS;
+    } catch {
+      return INITIAL_VACATION_REQUESTS;
+    }
+  },
+  saveVacationRequests(requests: VacationRequest[]): void {
+    localStorage.setItem("flow_vacation_requests", JSON.stringify(requests));
+  },
+
+  getLicenseRequests(): LicenseRequest[] {
+    try {
+      const saved = localStorage.getItem("flow_license_requests");
+      return saved ? JSON.parse(saved) : INITIAL_LICENSE_REQUESTS;
+    } catch {
+      return INITIAL_LICENSE_REQUESTS;
+    }
+  },
+  saveLicenseRequests(requests: LicenseRequest[]): void {
+    localStorage.setItem("flow_license_requests", JSON.stringify(requests));
+  },
+
+  getVacationParameters(): VacationParameters {
+    try {
+      const saved = localStorage.getItem("flow_vacation_parameters");
+      return saved ? JSON.parse(saved) : PARAMETROS_PADRAO;
+    } catch {
+      return PARAMETROS_PADRAO;
+    }
+  },
+  saveVacationParameters(params: VacationParameters): void {
+    localStorage.setItem("flow_vacation_parameters", JSON.stringify(params));
   }
 };

@@ -36,10 +36,10 @@ export function getNextSuggestedPunch(todayRecords: TimeRecord[]): {
     return { type: "entrada", label: "Entrada", isFinished: false, stepIndex: 0 };
   }
   if (count === 1) {
-    return { type: "almoco_ida", label: "Ida Almoço", isFinished: false, stepIndex: 1 };
+    return { type: "almoco_ida", label: "Início do Intervalo", isFinished: false, stepIndex: 1 };
   }
   if (count === 2) {
-    return { type: "almoco_volta", label: "Volta Almoço", isFinished: false, stepIndex: 2 };
+    return { type: "almoco_volta", label: "Retorno do Intervalo", isFinished: false, stepIndex: 2 };
   }
   if (count === 3) {
     return { type: "saida", label: "Saída", isFinished: false, stepIndex: 3 };
@@ -58,9 +58,9 @@ export function isPunchStepAllowed(
       targetType === "entrada"
         ? "a Entrada"
         : targetType === "almoco_ida"
-        ? "a Ida ao Almoço"
+        ? "o Início do Intervalo"
         : targetType === "almoco_volta"
-        ? "a Volta do Almoço"
+        ? "o Retorno do Intervalo"
         : "a Saída";
     return {
       allowed: false,
@@ -69,7 +69,7 @@ export function isPunchStepAllowed(
   }
 
   if (targetType === "almoco_ida" && !existingTypes.has("entrada")) {
-    return { allowed: false, reason: "É necessário registrar a Entrada antes da Ida ao Almoço." };
+    return { allowed: false, reason: "É necessário registrar a Entrada antes de iniciar o intervalo." };
   }
 
   if (targetType === "almoco_volta") {
@@ -77,7 +77,7 @@ export function isPunchStepAllowed(
       return { allowed: false, reason: "É necessário registrar a Entrada primeiro." };
     }
     if (!existingTypes.has("almoco_ida")) {
-      return { allowed: false, reason: "É necessário registrar a Ida ao Almoço antes do retorno." };
+      return { allowed: false, reason: "É necessário registrar o Início do Intervalo antes de registrar o retorno." };
     }
   }
 
@@ -86,10 +86,10 @@ export function isPunchStepAllowed(
       return { allowed: false, reason: "É necessário registrar a Entrada primeiro." };
     }
     if (!existingTypes.has("almoco_ida")) {
-      return { allowed: false, reason: "É necessário registrar a Ida ao Almoço." };
+      return { allowed: false, reason: "É necessário registrar o Início do Intervalo antes do encerramento." };
     }
     if (!existingTypes.has("almoco_volta")) {
-      return { allowed: false, reason: "É necessário registrar a Volta do Almoço antes da Saída." };
+      return { allowed: false, reason: "É necessário registrar o Retorno do Intervalo antes da Saída." };
     }
   }
 
@@ -200,5 +200,123 @@ export function calculateBankOfHours(
     totalBalanceMinutes: Math.round(totalBalanceHours * 60),
     totalBalanceHours,
     formattedTotalBalance
+  };
+}
+
+export interface PontoAlertInfo {
+  hasAlert: boolean;
+  missingInterval: boolean;
+  missingSaida: boolean;
+  missingEntrada: boolean;
+  title: string;
+  message: string;
+  shortBadge: string;
+  severity: "warning" | "danger" | "info";
+  stepDescription: string;
+}
+
+export function getPontoPendingAlert(
+  records: TimeRecord[] = [],
+  userId: string,
+  targetDate = new Date()
+): PontoAlertInfo {
+  const today = getTodayRecords(records, userId, targetDate);
+  const hasEntrada = today.some((r) => r.type === "entrada");
+  const hasAlmocoIda = today.some((r) => r.type === "almoco_ida");
+  const hasAlmocoVolta = today.some((r) => r.type === "almoco_volta");
+  const hasSaida = today.some((r) => r.type === "saida");
+
+  const missingInterval = !hasAlmocoIda || !hasAlmocoVolta;
+  const missingSaida = !hasSaida;
+  const missingEntrada = !hasEntrada;
+
+  // 1. Todas as 4 batidas registradas -> Completo, sem alerta
+  if (hasEntrada && hasAlmocoIda && hasAlmocoVolta && hasSaida) {
+    return {
+      hasAlert: false,
+      missingInterval: false,
+      missingSaida: false,
+      missingEntrada: false,
+      title: "Jornada Concluída",
+      message: "Todas as marcações do dia (entrada, intervalo e saída) foram realizadas.",
+      shortBadge: "OK",
+      severity: "info",
+      stepDescription: "Expediente completo"
+    };
+  }
+
+  // 2. Colaborador já registrou entrada
+  if (hasEntrada) {
+    // 2a. Iniciou intervalo mas ainda não registrou o retorno
+    if (hasAlmocoIda && !hasAlmocoVolta) {
+      return {
+        hasAlert: true,
+        missingInterval: true,
+        missingSaida: true,
+        missingEntrada: false,
+        title: "Retorno do Intervalo Pendente",
+        message: "Você registrou o início do intervalo, mas ainda não registrou o retorno.",
+        shortBadge: "Retorno",
+        severity: "warning",
+        stepDescription: "Retorno de intervalo pendente"
+      };
+    }
+
+    // 2b. Não iniciou intervalo ainda
+    if (!hasAlmocoIda) {
+      if (hasSaida) {
+        return {
+          hasAlert: true,
+          missingInterval: true,
+          missingSaida: false,
+          missingEntrada: false,
+          title: "Intervalo Não Registrado",
+          message: "Atenção de conformidade: a saída foi registrada, mas o intervalo de refeição não foi apontado hoje.",
+          shortBadge: "Intervalo",
+          severity: "warning",
+          stepDescription: "Intervalo não registrado"
+        };
+      }
+
+      return {
+        hasAlert: true,
+        missingInterval: true,
+        missingSaida: true,
+        missingEntrada: false,
+        title: "Intervalo e Saída Pendentes",
+        message: "Entrada registrada! Lembre-se de registrar o intervalo intrajornada e a saída hoje.",
+        shortBadge: "Intervalo",
+        severity: "warning",
+        stepDescription: "Intervalo e saída pendentes"
+      };
+    }
+
+    // 2c. Concluiu intervalo (ida e volta), mas ainda não bateu a saída
+    if (hasAlmocoIda && hasAlmocoVolta && !hasSaida) {
+      return {
+        hasAlert: true,
+        missingInterval: false,
+        missingSaida: true,
+        missingEntrada: false,
+        title: "Saída Não Registrada",
+        message: "Você retornou do intervalo, mas ainda não registrou a saída de encerramento do expediente.",
+        shortBadge: "Saída",
+        severity: "danger",
+        stepDescription: "Saída pendente"
+      };
+    }
+  }
+
+  // 3. Não registrou entrada hoje (dia não iniciado)
+  return {
+    hasAlert: true,
+    missingInterval: true,
+    missingSaida: true,
+    missingEntrada: true,
+    title: "Ponto Não Iniciado",
+    message: "Nenhum registro de ponto realizado hoje (entrada, intervalo e saída pendentes).",
+    shortBadge: "!",
+    severity: "warning",
+    stepDescription: "Ponto pendente"
   };
 }

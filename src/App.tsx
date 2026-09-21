@@ -21,12 +21,16 @@ import { Dashboard } from "./pages/Dashboard";
 import { Mural } from "./pages/Mural";
 import { ChatPage } from "./pages/Chat";
 import { Ponto } from "./pages/Ponto";
+import { Ferias } from "./pages/Ferias";
 import { Funcionarios } from "./pages/Funcionarios";
 import { PDI } from "./pages/PDI";
 import { Onboarding } from "./pages/Onboarding";
 import { FlowAI } from "./pages/FlowAI";
 import { SuperAdmin } from "./pages/SuperAdmin";
 import { Configuracoes } from "./pages/Configuracoes";
+import { FolhaPagamento } from "./pages/FolhaPagamento";
+import { LGPDPortal } from "./pages/LGPDPortal";
+import { LGPDConsentModal } from "./components/LGPDConsentModal";
 
 export function App() {
   const {
@@ -146,6 +150,7 @@ export function App() {
           isOnboarding={isOnboarding}
           setIsOnboarding={setIsOnboarding}
           currentUser={currentUser}
+          timeRecords={timeRecords}
         />
 
         {/* Main Content View Container */}
@@ -198,6 +203,13 @@ export function App() {
               />
             )}
 
+            {currentTab === "ferias" && (
+              <Ferias
+                key="ferias"
+                currentUser={currentUser}
+              />
+            )}
+
             {currentTab === "funcionarios" && canAccessGestao(currentUser) && (
               <Funcionarios
                 key="funcionarios"
@@ -215,6 +227,16 @@ export function App() {
                   setOnboardingTargetUser(target);
                   setCurrentTab("onboarding");
                 }}
+              />
+            )}
+
+            {currentTab === "folha" && canAccessGestao(currentUser) && (
+              <FolhaPagamento
+                key="folha"
+                currentUser={currentUser}
+                activeCompany={activeCompany}
+                allUsers={users}
+                timeRecords={timeRecords}
               />
             )}
 
@@ -270,9 +292,22 @@ export function App() {
                 users={users}
               />
             )}
+
+            {currentTab === "lgpd" && (
+              <LGPDPortal
+                key="lgpd"
+                currentUser={currentUser}
+              />
+            )}
           </AnimatePresence>
         </main>
       </div>
+
+      {/* Consentimento & Privacidade LGPD */}
+      <LGPDConsentModal
+        currentUser={currentUser}
+        onOpenPortal={() => setCurrentTab("lgpd")}
+      />
 
       {/* Global Modals */}
       <SelfProfileModal

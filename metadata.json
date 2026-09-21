@@ -1,6 +1,6 @@
 {
   "name": "Flow RH",
-  "description": "Plataforma SaaS de Employee Experience (EX), mural corporativo, onboarding automatizado e controle de ponto inteligente com validação biométrica facial.",
+  "description": "Plataforma SaaS de Gestão de RH, Folha e Férias com Supabase Edge Functions, Segurança Zero-Secrets, Compliance LGPD, Auditoria Imutável e Validação eSocial.",
   "requestFramePermissions": ["camera", "geolocation"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

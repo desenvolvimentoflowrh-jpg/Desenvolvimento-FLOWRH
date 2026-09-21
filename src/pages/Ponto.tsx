@@ -21,15 +21,31 @@ import {
   Plus,
   Edit2,
   Trash2,
-  ShieldCheck
+  ShieldCheck,
+  LogIn,
+  LogOut,
+  Coffee,
+  RotateCcw,
+  Utensils,
+  Check,
+  HelpCircle,
+  Banknote,
+  Eye,
+  Download,
+  AlertTriangle
 } from "lucide-react";
-import { UserProfile, TimeRecord, UserRole, PontoAuditLog } from "../types";
+import { UserProfile, TimeRecord, UserRole, PontoAuditLog, Payslip } from "../types";
 import { canManagePontoFull } from "../utils/rbac";
 import { useClock } from "../hooks/useClock";
 import { ReceiptModal } from "../components/ReceiptModal";
 import { AjustePontoModal } from "../components/AjustePontoModal";
 import { ManualPontoModal } from "../components/ManualPontoModal";
 import { PontoAuditTable } from "../components/PontoAuditTable";
+import { PontoTourModal } from "../components/PontoTourModal";
+import { PayslipCard } from "../components/folha/PayslipCard";
+import { PayslipDetailModal } from "../components/folha/PayslipDetailModal";
+import { useMyPayslips } from "../hooks/useMyPayslips";
+import { generatePayslipPDF } from "../utils/payslipPdfGenerator";
 import { dataService } from "../services/dataService";
 import {
   getTodayRecords,
@@ -37,6 +53,7 @@ import {
   isPunchStepAllowed,
   calculateDailyWork,
   calculateBankOfHours,
+  getPontoPendingAlert,
   PunchType
 } from "../utils/pontoUtils";
 
@@ -60,6 +77,7 @@ export const Ponto: React.FC<PontoProps> = ({
   // Calcular registros de hoje e regras de sequência inteligente
   const todayRecords = getTodayRecords(timeRecords, currentUser.id, currentTime);
   const suggestedNext = getNextSuggestedPunch(todayRecords);
+  const pontoAlert = getPontoPendingAlert(timeRecords, currentUser.id, currentTime);
 
   const [pontoType, setPontoType] = useState<PunchType>(
     suggestedNext.isFinished ? "saida" : (suggestedNext.type as PunchType)
@@ -93,7 +111,40 @@ export const Ponto: React.FC<PontoProps> = ({
   const [isReceiptOpen, setIsReceiptOpen] = useState(false);
   const [isAjusteModalOpen, setIsAjusteModalOpen] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  const [isTourOpen, setIsTourOpen] = useState(false);
   const [editingRecordForManual, setEditingRecordForManual] = useState<TimeRecord | null>(null);
+
+  // Aba principal: Bater Ponto vs Meus Holerites
+  const [activeMainTab, setActiveMainTab] = useState<"ponto" | "holerites">("ponto");
+  const [selectedPayslipForModal, setSelectedPayslipForModal] = useState<Payslip | null>(null);
+
+  const {
+    payslips: myPayslips,
+    loading: loadingPayslips,
+    handleDownloadPDF: downloadMyPayslipPDF,
+    handleContest: handleContestMyPayslip
+  } = useMyPayslips(currentUser, activeCompanyId);
+
+  // Verificar se é o primeiro acesso do usuário à tela de Ponto para abrir o Tour Guia
+  useEffect(() => {
+    try {
+      const tourSeen = localStorage.getItem(`flow_ponto_tour_seen_${currentUser.id}`);
+      if (!tourSeen) {
+        setIsTourOpen(true);
+      }
+    } catch (e) {
+      console.warn("Não foi possível acessar localStorage:", e);
+    }
+  }, [currentUser.id]);
+
+  const handleCloseTour = () => {
+    setIsTourOpen(false);
+    try {
+      localStorage.setItem(`flow_ponto_tour_seen_${currentUser.id}`, "true");
+    } catch (e) {
+      console.warn("Não foi possível salvar no localStorage:", e);
+    }
+  };
 
   const [auditLogs, setAuditLogs] = useState<PontoAuditLog[]>(() => dataService.getAuditLogs());
 
@@ -563,6 +614,16 @@ export const Ponto: React.FC<PontoProps> = ({
 
             <button
               type="button"
+              onClick={() => setIsTourOpen(true)}
+              className="bg-white/20 hover:bg-white/30 text-white font-bold px-3.5 py-3 rounded-2xl text-xs border border-white/30 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm backdrop-blur-md w-full sm:w-auto"
+              title="Ver Guia de Uso da Tela de Ponto"
+            >
+              <HelpCircle className="w-4 h-4" />
+              Como Funciona?
+            </button>
+
+            <button
+              type="button"
               onClick={() => setIsAjusteModalOpen(true)}
               className="bg-white/20 hover:bg-white/30 text-white font-bold px-3.5 py-3 rounded-2xl text-xs border border-white/30 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm backdrop-blur-md w-full sm:w-auto"
             >
@@ -573,8 +634,77 @@ export const Ponto: React.FC<PontoProps> = ({
         </div>
       </div>
 
-      {/* Main Registration Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      {/* Navegação entre Bater Ponto & Histórico vs Meus Holerites */}
+      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
+        <button
+          type="button"
+          onClick={() => setActiveMainTab("ponto")}
+          className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+            activeMainTab === "ponto"
+              ? "bg-[#8B5CF6] text-white shadow-md"
+              : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-100 dark:border-slate-800"
+          }`}
+        >
+          <Clock className="w-4 h-4" /> Registro de Ponto & Espelho
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveMainTab("holerites")}
+          className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+            activeMainTab === "holerites"
+              ? "bg-[#8B5CF6] text-white shadow-md"
+              : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-100 dark:border-slate-800"
+          }`}
+        >
+          <Banknote className="w-4 h-4" /> Meus Holerites & Pagamentos ({myPayslips.length})
+        </button>
+      </div>
+
+      {activeMainTab === "holerites" ? (
+        <div className="space-y-6">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 p-6 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+                <Banknote className="w-5 h-5 text-[#8B5CF6]" /> Meus Demonstrativos de Pagamento
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                Acesse seus holerites mensais oficiais, baixe o PDF e consulte discriminativos de proventos e descontos.
+              </p>
+            </div>
+            <div className="text-xs font-bold text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 rounded-xl">
+              {myPayslips.length} demonstrativo(s) disponível(is)
+            </div>
+          </div>
+
+          {loadingPayslips ? (
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 p-12 text-center text-slate-400 text-xs">
+              <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-[#8B5CF6]" />
+              Carregando seus demonstrativos de pagamento...
+            </div>
+          ) : myPayslips.length === 0 ? (
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 p-12 text-center text-slate-500 text-xs">
+              <Banknote className="w-8 h-8 text-slate-300 mx-auto mb-3" />
+              Nenhum holerite disponível para seu usuário no momento.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {myPayslips.map((p) => (
+                <PayslipCard
+                  key={p.id}
+                  payslip={p}
+                  onView={(payslip) => setSelectedPayslipForModal(payslip)}
+                  onDownload={(payslip) => downloadMyPayslipPDF(payslip)}
+                  onContest={handleContestMyPayslip}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
+          {/* Main Registration Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Registration Form Box */}
         <div className="lg:col-span-6 bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm p-6 space-y-6">
           <div className="flex flex-wrap items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4 gap-2">
@@ -632,31 +762,145 @@ export const Ponto: React.FC<PontoProps> = ({
             </div>
           )}
 
-          {/* Point Type Selector */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 tracking-wider">
+          {/* Alerta de Notificação / Ponto Pendente do Dia Atual */}
+          {pontoAlert.hasAlert && (
+            <div
+              className={`p-3 rounded-2xl border flex items-start gap-3 transition-all ${
+                pontoAlert.severity === "danger"
+                  ? "bg-rose-50/90 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/60 text-rose-900 dark:text-rose-100"
+                  : "bg-amber-50/90 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900/60 text-amber-900 dark:text-amber-100"
+              }`}
+            >
+              <div
+                className={`p-1.5 rounded-xl shrink-0 mt-0.5 ${
+                  pontoAlert.severity === "danger"
+                    ? "bg-rose-500/15 text-rose-600 dark:text-rose-400"
+                    : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                }`}
+              >
+                <AlertTriangle className="w-4 h-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold flex items-center gap-1.5">
+                    {pontoAlert.title}
+                  </span>
+                  <span
+                    className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                      pontoAlert.severity === "danger"
+                        ? "bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300"
+                        : "bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300"
+                    }`}
+                  >
+                    {pontoAlert.shortBadge}
+                  </span>
+                </div>
+                <p className="text-[11px] opacity-90 mt-0.5 leading-snug">
+                  {pontoAlert.message}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Point Type Selector with Minimalist Module Style & Smart Timeline */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 tracking-wider flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-purple-500" />
                 Tipo de Marcação (Sequência Inteligente)
               </label>
               {!suggestedNext.isFinished && (
-                <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/60 px-2 py-0.5 rounded-full border border-purple-200 dark:border-purple-800 flex items-center gap-1">
+                <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/60 px-2.5 py-0.5 rounded-full border border-purple-200 dark:border-purple-800 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse"></span>
                   Próxima sugerida: {suggestedNext.label}
                 </span>
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
+            {/* Visual Smart Sequence Progress Bar */}
+            <div className="bg-slate-50/80 dark:bg-slate-800/50 rounded-2xl p-2.5 border border-slate-100 dark:border-slate-800/80">
+              <div className="grid grid-cols-4 gap-1.5">
+                {[
+                  { id: "entrada", label: "1. Entrada", time: "08:00" },
+                  { id: "almoco_ida", label: "2. Início Intervalo", time: "12:00" },
+                  { id: "almoco_volta", label: "3. Retorno", time: "13:00" },
+                  { id: "saida", label: "4. Saída", time: "17:00" }
+                ].map((step, idx) => {
+                  const isDone = todayRecords.some((r) => r.type === step.id);
+                  const isCurrent = suggestedNext.type === step.id;
+
+                  return (
+                    <div
+                      key={step.id}
+                      className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl text-center transition-all ${
+                        isDone
+                          ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-bold border border-emerald-500/20"
+                          : isCurrent
+                          ? "bg-purple-500/10 text-purple-700 dark:text-purple-300 font-bold border border-purple-500/30"
+                          : "text-slate-400 dark:text-slate-500 font-medium"
+                      }`}
+                    >
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] leading-none truncate">{step.label}</span>
+                        {isDone && <Check className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400 shrink-0" />}
+                      </div>
+                      <span className="text-[9px] font-mono opacity-80">{step.time}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Minimalist Punch Option Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               {[
-                { id: "entrada", label: "🟢 Entrada", expectedTime: "08:00" },
-                { id: "almoco_ida", label: "🍔 Ida Almoço", expectedTime: "12:00" },
-                { id: "almoco_volta", label: "☕ Volta Almoço", expectedTime: "13:00" },
-                { id: "saida", label: "🔴 Saída", expectedTime: "17:00" }
+                {
+                  id: "entrada" as PunchType,
+                  title: "Entrada",
+                  subtitle: "Início da Jornada",
+                  expectedTime: "08:00",
+                  icon: LogIn,
+                  tag: "Turno 1",
+                  iconBg: "bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20",
+                  activeStyle: "border-emerald-500 ring-2 ring-emerald-500/20 bg-emerald-50/60 dark:bg-emerald-950/40"
+                },
+                {
+                  id: "almoco_ida" as PunchType,
+                  title: "Início do Intervalo",
+                  subtitle: "Pausa para Refeição",
+                  expectedTime: "12:00",
+                  icon: Coffee,
+                  tag: "Intervalo",
+                  iconBg: "bg-amber-500/10 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/20",
+                  activeStyle: "border-amber-500 ring-2 ring-amber-500/20 bg-amber-50/60 dark:bg-amber-950/40"
+                },
+                {
+                  id: "almoco_volta" as PunchType,
+                  title: "Retorno do Intervalo",
+                  subtitle: "Retorno da Refeição",
+                  expectedTime: "13:00",
+                  icon: RotateCcw,
+                  tag: "Turno 2",
+                  iconBg: "bg-blue-500/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/20",
+                  activeStyle: "border-blue-500 ring-2 ring-blue-500/20 bg-blue-50/60 dark:bg-blue-950/40"
+                },
+                {
+                  id: "saida" as PunchType,
+                  title: "Saída",
+                  subtitle: "Fim do Expediente",
+                  expectedTime: "17:00",
+                  icon: LogOut,
+                  tag: "Encerramento",
+                  iconBg: "bg-purple-500/10 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/20",
+                  activeStyle: "border-purple-500 ring-2 ring-purple-500/20 bg-purple-50/60 dark:bg-purple-950/40"
+                }
               ].map((item) => {
                 const isCompleted = todayRecords.some((r) => r.type === item.id);
                 const isSuggested = suggestedNext.type === item.id;
                 const isSelected = pontoType === item.id;
-                const check = isPunchStepAllowed(item.id as PunchType, todayRecords);
+                const check = isPunchStepAllowed(item.id, todayRecords);
                 const isLocked = !check.allowed && !isCompleted;
+                const IconComponent = item.icon;
 
                 const completedRecord = todayRecords.find((r) => r.type === item.id);
                 const completedTimeString = completedRecord
@@ -670,43 +914,69 @@ export const Ponto: React.FC<PontoProps> = ({
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => handleSelectPontoType(item.id as PunchType)}
-                    className={`p-3 rounded-xl border text-xs font-bold transition-all relative flex flex-col justify-between gap-1.5 text-left cursor-pointer ${
+                    onClick={() => handleSelectPontoType(item.id)}
+                    className={`p-3.5 rounded-2xl border transition-all duration-200 relative flex flex-col justify-between gap-2.5 text-left cursor-pointer group ${
                       isSelected
-                        ? "border-[#8B5CF6] bg-purple-50/80 dark:bg-purple-950/50 text-[#8B5CF6] dark:text-purple-300 ring-2 ring-purple-500/20 shadow-sm"
+                        ? item.activeStyle
                         : isCompleted
-                        ? "border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/50 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-200"
+                        ? "border-emerald-200/80 dark:border-emerald-800/50 bg-emerald-50/40 dark:bg-emerald-950/20 hover:bg-emerald-50/70"
                         : isSuggested
-                        ? "border-purple-300 dark:border-purple-700 bg-purple-50/30 dark:bg-purple-950/20 text-slate-800 dark:text-slate-100 hover:bg-purple-50"
-                        : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
+                        ? "border-purple-300 dark:border-purple-700/80 bg-purple-50/30 dark:bg-purple-950/20 hover:bg-purple-50/60 dark:hover:bg-purple-950/40 shadow-sm"
+                        : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/70 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
                     } ${isLocked ? "opacity-60" : ""}`}
                   >
+                    {/* Header with Icon and Badges */}
                     <div className="flex items-center justify-between w-full">
-                      <span className="truncate">{item.label}</span>
-                      {isCompleted ? (
-                        <span className="text-[10px] font-bold bg-emerald-500 text-white px-1.5 py-0.5 rounded-full flex items-center gap-1">
-                          ✓ {completedTimeString}
-                        </span>
-                      ) : isSuggested ? (
-                        <span className="text-[9px] font-bold bg-purple-600 text-white px-1.5 py-0.5 rounded-full animate-pulse">
-                          Sugerido
-                        </span>
-                      ) : isLocked ? (
-                        <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      ) : (
-                        <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500">
-                          {item.expectedTime}
-                        </span>
-                      )}
+                      <div className="flex items-center gap-2.5">
+                        <div
+                          className={`w-9 h-9 rounded-xl flex items-center justify-center transition-transform duration-200 group-hover:scale-105 ${item.iconBg}`}
+                        >
+                          <IconComponent className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div className="font-bold text-xs text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                            <span>{item.title}</span>
+                          </div>
+                          <div className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">
+                            {item.subtitle}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right Status Badge */}
+                      <div className="shrink-0">
+                        {isCompleted ? (
+                          <span className="text-[10px] font-bold bg-emerald-500 text-white px-2 py-0.5 rounded-full flex items-center gap-1 shadow-sm">
+                            <Check className="w-3 h-3" /> {completedTimeString}
+                          </span>
+                        ) : isSuggested ? (
+                          <span className="text-[9px] font-bold bg-purple-600 text-white px-2 py-0.5 rounded-full shadow-sm animate-pulse">
+                            Sugerido
+                          </span>
+                        ) : isLocked ? (
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500 flex items-center gap-1 font-mono">
+                            <Lock className="w-3 h-3" />
+                            {item.expectedTime}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-mono font-semibold text-slate-400 dark:text-slate-500">
+                            {item.expectedTime}
+                          </span>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="text-[9px] font-normal text-slate-400 dark:text-slate-500 flex items-center justify-between">
-                      <span>
+                    {/* Footer / Helper Note */}
+                    <div className="flex items-center justify-between text-[9px] text-slate-400 dark:text-slate-500 pt-1 border-t border-slate-100 dark:border-slate-800/80">
+                      <span className="font-medium">
                         {isCompleted
-                          ? "Registrado hoje"
+                          ? "✓ Registrado com sucesso"
                           : isLocked
-                          ? "Aguardando anterior"
-                          : `Previsto: ${item.expectedTime}`}
+                          ? "Aguardando etapa anterior"
+                          : `Horário padrão: ${item.expectedTime}`}
+                      </span>
+                      <span className="uppercase text-[8px] font-bold tracking-wider opacity-60">
+                        {item.tag}
                       </span>
                     </div>
                   </button>
@@ -1051,27 +1321,39 @@ export const Ponto: React.FC<PontoProps> = ({
                       setSelectedRecordForReceipt(rec);
                       setIsReceiptOpen(true);
                     }}
-                    className="p-3 bg-slate-50 dark:bg-slate-800/60 hover:bg-purple-50/60 dark:hover:bg-slate-800/90 rounded-xl border border-slate-100 dark:border-slate-700/80 text-xs flex items-center justify-between gap-3 cursor-pointer transition-all hover:shadow-sm group"
+                    className="p-3 bg-slate-50 dark:bg-slate-800/60 hover:bg-purple-50/60 dark:hover:bg-slate-800/90 rounded-2xl border border-slate-100 dark:border-slate-700/80 text-xs flex items-center justify-between gap-3 cursor-pointer transition-all hover:shadow-sm group"
                   >
                     <div className="flex items-center gap-3">
-                      <span className="text-xl">
-                        {rec.type === "entrada"
-                          ? "🟢"
-                          : rec.type === "almoco_ida"
-                          ? "🍔"
-                          : rec.type === "almoco_volta"
-                          ? "☕"
-                          : "🔴"}
-                      </span>
+                      <div
+                        className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border ${
+                          rec.type === "entrada"
+                            ? "bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                            : rec.type === "almoco_ida"
+                            ? "bg-amber-500/10 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                            : rec.type === "almoco_volta"
+                            ? "bg-blue-500/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 border-blue-500/20"
+                            : "bg-purple-500/10 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400 border-purple-500/20"
+                        }`}
+                      >
+                        {rec.type === "entrada" ? (
+                          <LogIn className="w-4 h-4" />
+                        ) : rec.type === "almoco_ida" ? (
+                          <Coffee className="w-4 h-4" />
+                        ) : rec.type === "almoco_volta" ? (
+                          <RotateCcw className="w-4 h-4" />
+                        ) : (
+                          <LogOut className="w-4 h-4" />
+                        )}
+                      </div>
                       <div>
                         <div className="font-bold text-slate-800 dark:text-slate-200 uppercase text-[11px] flex items-center gap-1.5">
                           <span>
                             {rec.type === "entrada"
                               ? "Entrada"
                               : rec.type === "almoco_ida"
-                              ? "Ida Almoço"
+                              ? "Início do Intervalo"
                               : rec.type === "almoco_volta"
-                              ? "Volta Almoço"
+                              ? "Retorno do Intervalo"
                               : "Saída"}
                           </span>
                         </div>
@@ -1148,6 +1430,16 @@ export const Ponto: React.FC<PontoProps> = ({
 
       {/* Tabela de Histórico do Log de Auditoria de Ponto (Apenas Gestores e Super Admins) */}
       {canManagePontoFull(currentUser) && <PontoAuditTable auditLogs={auditLogs} />}
+        </>
+      )}
+
+      {/* Demonstrativo Detalhado de Holerite Modal */}
+      <PayslipDetailModal
+        payslip={selectedPayslipForModal}
+        onClose={() => setSelectedPayslipForModal(null)}
+        onDownload={downloadMyPayslipPDF}
+        onContest={handleContestMyPayslip}
+      />
 
       {/* Comprovante de Registro de Ponto Modal */}
       <ReceiptModal
@@ -1175,6 +1467,13 @@ export const Ponto: React.FC<PontoProps> = ({
         activeCompanyId={activeCompanyId}
         editingRecord={editingRecordForManual}
         onAddOrUpdateRecord={handleAddOrUpdateManualRecord}
+      />
+
+      {/* Modal de Tour Rápido / Guia de Boas-Vindas da Tela de Ponto */}
+      <PontoTourModal
+        isOpen={isTourOpen}
+        onClose={handleCloseTour}
+        userName={currentUser.name}
       />
     </motion.div>
   );

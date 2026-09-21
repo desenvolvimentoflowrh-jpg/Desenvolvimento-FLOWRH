@@ -13,7 +13,11 @@ import {
   Trash2,
   CheckCircle,
   XCircle,
-  ChevronRight
+  ChevronRight,
+  LogIn,
+  LogOut,
+  Coffee,
+  RotateCcw
 } from "lucide-react";
 import { PontoAuditLog, UserRole } from "../types";
 import { Modal } from "./Modal";
@@ -155,18 +159,38 @@ export const PontoAuditTable: React.FC<PontoAuditTableProps> = ({ auditLogs }) =
     }
   };
 
-  const getRecordTypeLabel = (type?: string) => {
+  const getRecordTypeInfo = (type?: string) => {
     switch (type) {
       case "entrada":
-        return "🟢 Entrada";
+        return {
+          label: "Entrada",
+          icon: LogIn,
+          colorClass: "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+        };
       case "almoco_ida":
-        return "🍔 Ida Almoço";
+        return {
+          label: "Início do Intervalo",
+          icon: Coffee,
+          colorClass: "text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/20"
+        };
       case "almoco_volta":
-        return "☕ Volta Almoço";
+        return {
+          label: "Retorno do Intervalo",
+          icon: RotateCcw,
+          colorClass: "text-blue-600 dark:text-blue-400 bg-blue-500/10 border-blue-500/20"
+        };
       case "saida":
-        return "🔴 Saída";
+        return {
+          label: "Saída",
+          icon: LogOut,
+          colorClass: "text-purple-600 dark:text-purple-400 bg-purple-500/10 border-purple-500/20"
+        };
       default:
-        return type || "Registro";
+        return {
+          label: type || "Marcação",
+          icon: Clock,
+          colorClass: "text-slate-600 dark:text-slate-400 bg-slate-100 border-slate-200"
+        };
     }
   };
 
@@ -315,7 +339,8 @@ export const PontoAuditTable: React.FC<PontoAuditTableProps> = ({ auditLogs }) =
               {filteredLogs.map((log) => {
                 const badge = getActionBadge(log.action_type);
                 const roleLabel = getRoleBadgeLabel(log.modified_by_role);
-                const recordTypeLabel = getRecordTypeLabel(log.record_type);
+                const recordInfo = getRecordTypeInfo(log.record_type);
+                const RecordIcon = recordInfo.icon;
 
                 return (
                   <tr
@@ -344,8 +369,11 @@ export const PontoAuditTable: React.FC<PontoAuditTableProps> = ({ auditLogs }) =
                     <td className="p-3.5">
                       <div>
                         <div className="font-bold text-slate-800 dark:text-slate-200">{log.target_user_name}</div>
-                        <div className="text-[10px] text-slate-400 font-medium flex items-center gap-1 mt-0.5">
-                          <span>{recordTypeLabel}</span>
+                        <div className="text-[10px] text-slate-500 font-medium flex items-center gap-1 mt-0.5">
+                          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold border ${recordInfo.colorClass}`}>
+                            <RecordIcon className="w-2.5 h-2.5" />
+                            {recordInfo.label}
+                          </span>
                         </div>
                       </div>
                     </td>
@@ -436,7 +464,7 @@ export const PontoAuditTable: React.FC<PontoAuditTableProps> = ({ auditLogs }) =
               <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-100 dark:border-slate-700/80">
                 <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Tipo de Registro</span>
                 <span className="font-bold text-slate-800 dark:text-slate-200">
-                  {getRecordTypeLabel(selectedLogForDetails.record_type)}
+                  {getRecordTypeInfo(selectedLogForDetails.record_type).label}
                 </span>
               </div>
 

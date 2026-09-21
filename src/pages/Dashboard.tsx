@@ -8,6 +8,10 @@ import {
   Clock,
   Award,
   CheckCircle,
+  LogIn,
+  LogOut,
+  Coffee,
+  RotateCcw
 } from "lucide-react";
 import { UserProfile, Company, Post, UserRole, Invitation, Training } from "../types";
 import { GlobalAnnouncements } from "../components/GlobalAnnouncements";
@@ -320,40 +324,55 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         onSetPointType("entrada");
                         onNavigateTab("ponto");
                       }}
-                      className="p-3 rounded-xl bg-emerald-50 hover:bg-emerald-100/80 border border-emerald-200/80 text-emerald-800 font-bold text-xs flex flex-col items-center justify-center gap-1 transition-all duration-200 hover:scale-[1.02] cursor-pointer"
+                      className="p-3 rounded-2xl bg-white dark:bg-slate-800 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20 border border-slate-200/80 dark:border-slate-700/80 hover:border-emerald-300 text-slate-800 dark:text-slate-100 font-bold text-xs flex flex-col items-center justify-center gap-2 transition-all duration-200 hover:scale-[1.02] shadow-sm cursor-pointer group"
                     >
-                      <span className="flex items-center gap-1 font-bold">🟢 Entrada</span>
-                      <span className="text-[10px] text-emerald-600 font-medium bg-emerald-100/60 px-2 py-0.5 rounded-full">08:00</span>
+                      <div className="w-8 h-8 rounded-xl bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center justify-center transition-transform group-hover:scale-105">
+                        <LogIn className="w-4 h-4" />
+                      </div>
+                      <span className="font-bold text-[11px]">Entrada</span>
+                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono font-medium bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded-full border border-emerald-200/60 dark:border-emerald-800/60">08:00</span>
                     </button>
+
                     <button
                       onClick={() => {
                         onSetPointType("almoco_ida");
                         onNavigateTab("ponto");
                       }}
-                      className="p-3 rounded-xl bg-amber-50 hover:bg-amber-100/80 border border-amber-200/80 text-amber-800 font-bold text-xs flex flex-col items-center justify-center gap-1 transition-all duration-200 hover:scale-[1.02] cursor-pointer"
+                      className="p-3 rounded-2xl bg-white dark:bg-slate-800 hover:bg-amber-50/50 dark:hover:bg-amber-950/20 border border-slate-200/80 dark:border-slate-700/80 hover:border-amber-300 text-slate-800 dark:text-slate-100 font-bold text-xs flex flex-col items-center justify-center gap-2 transition-all duration-200 hover:scale-[1.02] shadow-sm cursor-pointer group"
                     >
-                      <span className="flex items-center gap-1 font-bold">🍔 Ida Almoço</span>
-                      <span className="text-[10px] text-amber-600 font-medium bg-amber-100/60 px-2 py-0.5 rounded-full">12:00</span>
+                      <div className="w-8 h-8 rounded-xl bg-amber-500/10 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/20 flex items-center justify-center transition-transform group-hover:scale-105">
+                        <Coffee className="w-4 h-4" />
+                      </div>
+                      <span className="font-bold text-[11px]">Início Intervalo</span>
+                      <span className="text-[10px] text-amber-600 dark:text-amber-400 font-mono font-medium bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 rounded-full border border-amber-200/60 dark:border-amber-800/60">12:00</span>
                     </button>
+
                     <button
                       onClick={() => {
                         onSetPointType("almoco_volta");
                         onNavigateTab("ponto");
                       }}
-                      className="p-3 rounded-xl bg-blue-50 hover:bg-blue-100/80 border border-blue-200/80 text-blue-800 font-bold text-xs flex flex-col items-center justify-center gap-1 transition-all duration-200 hover:scale-[1.02] cursor-pointer"
+                      className="p-3 rounded-2xl bg-white dark:bg-slate-800 hover:bg-blue-50/50 dark:hover:bg-blue-950/20 border border-slate-200/80 dark:border-slate-700/80 hover:border-blue-300 text-slate-800 dark:text-slate-100 font-bold text-xs flex flex-col items-center justify-center gap-2 transition-all duration-200 hover:scale-[1.02] shadow-sm cursor-pointer group"
                     >
-                      <span className="flex items-center gap-1 font-bold">☕ Volta Almoço</span>
-                      <span className="text-[10px] text-blue-600 font-medium bg-blue-100/60 px-2 py-0.5 rounded-full">13:00</span>
+                      <div className="w-8 h-8 rounded-xl bg-blue-500/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/20 flex items-center justify-center transition-transform group-hover:scale-105">
+                        <RotateCcw className="w-4 h-4" />
+                      </div>
+                      <span className="font-bold text-[11px]">Retorno</span>
+                      <span className="text-[10px] text-blue-600 dark:text-blue-400 font-mono font-medium bg-blue-50 dark:bg-blue-950/50 px-2 py-0.5 rounded-full border border-blue-200/60 dark:border-blue-800/60">13:00</span>
                     </button>
+
                     <button
                       onClick={() => {
                         onSetPointType("saida");
                         onNavigateTab("ponto");
                       }}
-                      className="p-3 rounded-xl bg-purple-50 hover:bg-purple-100/80 border border-purple-200/80 text-purple-800 font-bold text-xs flex flex-col items-center justify-center gap-1 transition-all duration-200 hover:scale-[1.02] cursor-pointer"
+                      className="p-3 rounded-2xl bg-white dark:bg-slate-800 hover:bg-purple-50/50 dark:hover:bg-purple-950/20 border border-slate-200/80 dark:border-slate-700/80 hover:border-purple-300 text-slate-800 dark:text-slate-100 font-bold text-xs flex flex-col items-center justify-center gap-2 transition-all duration-200 hover:scale-[1.02] shadow-sm cursor-pointer group"
                     >
-                      <span className="flex items-center gap-1 font-bold">🔴 Saída</span>
-                      <span className="text-[10px] text-purple-600 font-medium bg-purple-100/60 px-2 py-0.5 rounded-full">17:00</span>
+                      <div className="w-8 h-8 rounded-xl bg-purple-500/10 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/20 flex items-center justify-center transition-transform group-hover:scale-105">
+                        <LogOut className="w-4 h-4" />
+                      </div>
+                      <span className="font-bold text-[11px]">Saída</span>
+                      <span className="text-[10px] text-purple-600 dark:text-purple-400 font-mono font-medium bg-purple-50 dark:bg-purple-950/50 px-2 py-0.5 rounded-full border border-purple-200/60 dark:border-purple-800/60">17:00</span>
                     </button>
                   </div>
                 </div>

@@ -1,4 +1,15 @@
-import { Company, UserProfile, UserRole, Invitation, Training, TimeRecord, Post, PontoAuditLog } from "../types";
+import {
+  Company,
+  UserProfile,
+  UserRole,
+  Invitation,
+  Training,
+  TimeRecord,
+  Post,
+  PontoAuditLog,
+  VacationRequest,
+  LicenseRequest
+} from "../types";
 
 export const INITIAL_COMPANIES: Company[] = [
   {
@@ -365,3 +376,108 @@ export const INITIAL_AUDIT_LOGS: PontoAuditLog[] = [
     timestamp: "2026-07-30T10:05:00.000Z"
   }
 ];
+
+export const INITIAL_VACATION_REQUESTS: VacationRequest[] = [
+  {
+    id: "vac-1",
+    user_id: "user-2",
+    user_name: "Lucas Silva",
+    user_email: "lucas.silva@base44.com",
+    user_department: "Engenharia de Software",
+    user_avatar: "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150&auto=format&fit=crop&q=80",
+    company_id: "company-1",
+    data_inicio: "2026-09-08",
+    data_fim: "2026-09-22",
+    dias_solicitados: 15,
+    abono_pecuniario: false,
+    dias_abono: 0,
+    adiantamento_decimo_terceiro: true,
+    status: "pendente",
+    observacao: "Férias planejadas pós entrega do release 2.0.",
+    created_at: "2026-08-10T14:30:00Z"
+  },
+  {
+    id: "vac-2",
+    user_id: "user-3",
+    user_name: "Ana Souza",
+    user_email: "ana.souza@base44.com",
+    user_department: "Design & UX",
+    user_avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+    company_id: "company-1",
+    data_inicio: "2026-10-05",
+    data_fim: "2026-10-19",
+    dias_solicitados: 15,
+    abono_pecuniario: true,
+    dias_abono: 10,
+    adiantamento_decimo_terceiro: false,
+    status: "aprovada",
+    observacao: "Viagem programada com abono pecuniário aprovado.",
+    aprovado_por: "user-4",
+    aprovado_em: "2026-08-05T11:20:00Z",
+    created_at: "2026-08-01T09:15:00Z"
+  },
+  {
+    id: "vac-3",
+    user_id: "user-1",
+    user_name: "Desenvolvimento Flow RH",
+    user_email: "desenvolvimentoflowrh@gmail.com",
+    user_department: "Gente & Gestão",
+    user_avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+    company_id: "company-1",
+    data_inicio: "2026-12-14",
+    data_fim: "2026-12-28",
+    dias_solicitados: 15,
+    abono_pecuniario: false,
+    dias_abono: 0,
+    adiantamento_decimo_terceiro: false,
+    status: "aprovada",
+    observacao: "Recesso e férias de fim de ano.",
+    aprovado_por: "user-4",
+    aprovado_em: "2026-08-08T16:00:00Z",
+    created_at: "2026-08-02T10:00:00Z"
+  }
+];
+
+export const INITIAL_LICENSE_REQUESTS: LicenseRequest[] = [
+  {
+    id: "lic-1",
+    user_id: "user-2",
+    user_name: "Lucas Silva",
+    user_email: "lucas.silva@base44.com",
+    user_department: "Engenharia de Software",
+    user_avatar: "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150&auto=format&fit=crop&q=80",
+    company_id: "company-1",
+    tipo: "medica",
+    data_inicio: "2026-08-03",
+    data_fim: "2026-08-04",
+    dias_totais: 2,
+    cid: "J06.9",
+    documento_nome: "atestado_medico_dralaura.pdf",
+    documento_url: "https://images.unsplash.com/photo-1584515979956-d9f6e5d09982?w=800&auto=format&fit=crop&q=80",
+    observacao: "Infecção respiratória aguda - repouso recomendado por 2 dias.",
+    status: "aprovada",
+    aprovado_por: "user-4",
+    aprovado_em: "2026-08-03T10:30:00Z",
+    esocial_status: "processado",
+    created_at: "2026-08-03T08:15:00Z"
+  },
+  {
+    id: "lic-2",
+    user_id: "user-3",
+    user_name: "Ana Souza",
+    user_email: "ana.souza@base44.com",
+    user_department: "Design & UX",
+    user_avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+    company_id: "company-1",
+    tipo: "casamento",
+    data_inicio: "2026-11-09",
+    data_fim: "2026-11-11",
+    dias_totais: 3,
+    documento_nome: "certidao_casamento_previo.pdf",
+    observacao: "Licença Gala (Art. 473 CLT - 3 dias consecutivos).",
+    status: "pendente",
+    esocial_status: "pendente_envio",
+    created_at: "2026-08-12T15:45:00Z"
+  }
+];
+

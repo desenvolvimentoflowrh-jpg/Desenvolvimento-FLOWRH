@@ -1,5 +1,7 @@
 export * from "./presence";
 export * from "./chat";
+export * from "./vacation";
+export * from "./payroll";
 
 export enum UserRole {
   COLLABORATOR = "collaborator",
@@ -43,6 +45,8 @@ export interface Company {
   segment: string;
   logo_url: string;
   domain?: string;
+  cnpj?: string;
+  razao_social?: string;
   created_at?: string;
 }
 

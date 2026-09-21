@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Clock, Calendar, AlertCircle, CheckCircle2, User, FileText, Plus, Edit2 } from "lucide-react";
+import { Clock, Calendar, AlertCircle, CheckCircle2, User, FileText, Plus, Edit2, LogIn, LogOut, Coffee, RotateCcw } from "lucide-react";
 import { Modal } from "./Modal";
 import { UserProfile, TimeRecord, UserRole, PontoAuditLog } from "../types";
 import { dataService } from "../services/dataService";
@@ -181,24 +181,29 @@ export const ManualPontoModal: React.FC<ManualPontoModalProps> = ({
             </label>
             <div className="grid grid-cols-2 gap-2">
               {[
-                { id: "entrada", label: "🟢 Entrada" },
-                { id: "almoco_ida", label: "🍔 Ida Almoço" },
-                { id: "almoco_volta", label: "☕ Volta Almoço" },
-                { id: "saida", label: "🔴 Saída" }
-              ].map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setRecordType(item.id as any)}
-                  className={`p-2.5 rounded-xl border text-xs font-bold transition-all text-center cursor-pointer ${
-                    recordType === item.id
-                      ? "border-[#8B5CF6] bg-purple-50 dark:bg-purple-950/60 text-[#8B5CF6] dark:text-purple-300 ring-2 ring-purple-500/20"
-                      : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50"
-                  }`}
-                >
-                  {item.label}
-                </button>
-              ))}
+                { id: "entrada", label: "Entrada", icon: LogIn, color: "text-emerald-500" },
+                { id: "almoco_ida", label: "Início do Intervalo", icon: Coffee, color: "text-amber-500" },
+                { id: "almoco_volta", label: "Retorno do Intervalo", icon: RotateCcw, color: "text-blue-500" },
+                { id: "saida", label: "Saída", icon: LogOut, color: "text-purple-500" }
+              ].map((item) => {
+                const IconComponent = item.icon;
+                const isSelected = recordType === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setRecordType(item.id as any)}
+                    className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                      isSelected
+                        ? "border-[#8B5CF6] bg-purple-50 dark:bg-purple-950/60 text-[#8B5CF6] dark:text-purple-300 ring-2 ring-purple-500/20 shadow-sm"
+                        : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-750"
+                    }`}
+                  >
+                    <IconComponent className={`w-4 h-4 shrink-0 ${isSelected ? "text-purple-600 dark:text-purple-400" : item.color}`} />
+                    <span className="truncate">{item.label}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 

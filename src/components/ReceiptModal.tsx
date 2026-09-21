@@ -13,7 +13,11 @@ import {
   FileText,
   Camera,
   Hash,
-  ExternalLink
+  ExternalLink,
+  LogIn,
+  LogOut,
+  Coffee,
+  RotateCcw
 } from "lucide-react";
 import { TimeRecord, UserProfile } from "../types";
 
@@ -64,40 +68,41 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
           label: "ENTRADA",
           colorClass:
             "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800",
-          icon: "🟢"
+          icon: LogIn
         };
       case "almoco_ida":
         return {
-          label: "IDA ALMOÇO",
+          label: "INÍCIO DO INTERVALO",
           colorClass:
             "bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300 border-amber-200 dark:border-amber-800",
-          icon: "🍔"
+          icon: Coffee
         };
       case "almoco_volta":
         return {
-          label: "VOLTA ALMOÇO",
+          label: "RETORNO DO INTERVALO",
           colorClass:
             "bg-blue-100 text-blue-800 dark:bg-blue-950/70 dark:text-blue-300 border-blue-200 dark:border-blue-800",
-          icon: "☕"
+          icon: RotateCcw
         };
       case "saida":
         return {
           label: "SAÍDA",
           colorClass:
-            "bg-rose-100 text-rose-800 dark:bg-rose-950/70 dark:text-rose-300 border-rose-200 dark:border-rose-800",
-          icon: "🔴"
+            "bg-purple-100 text-purple-800 dark:bg-purple-950/70 dark:text-purple-300 border-purple-200 dark:border-purple-800",
+          icon: LogOut
         };
       default:
         return {
           label: "MARCAÇÃO",
           colorClass:
             "bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200 border-slate-200 dark:border-slate-700",
-          icon: "⏱️"
+          icon: Clock
         };
     }
   };
 
   const typeInfo = getTypeBadge(record.type);
+  const TypeIcon = typeInfo.icon;
 
   // Address formatted
   const locationText =
@@ -295,7 +300,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
               <div
                 className={`px-3 py-1 rounded-xl text-xs font-black uppercase tracking-wider border flex items-center gap-1.5 ${typeInfo.colorClass}`}
               >
-                <span>{typeInfo.icon}</span>
+                <TypeIcon className="w-3.5 h-3.5" />
                 <span>{typeInfo.label}</span>
               </div>
 
