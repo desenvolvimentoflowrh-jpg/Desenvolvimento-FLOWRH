@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
@@ -17,11 +18,13 @@ import {
 import {
   INITIAL_COMPANIES,
   INITIAL_USERS,
+  INITIAL_POSTS,
   INITIAL_TIME_RECORDS,
   INITIAL_VACATION_REQUESTS,
   INITIAL_LICENSE_REQUESTS
 } from "./src/utils/mockData";
-import { TimeRecord } from "./src/types";
+import { TimeRecord, Post, UserProfile, ChatChannel, ChatMessage } from "./src/types";
+import { UserPresenceState, UserPresenceStatus } from "./src/types/presence";
 
 dotenv.config();
 
@@ -996,6 +999,764 @@ Como posso ajudar você hoje?`;
       delegatedTo: "supabase/functions/esocial-xml",
       timestamp: new Date().toISOString()
     });
+  });
+
+  // Status da Conexão Supabase
+  app.get("/api/supabase/status", async (req, res) => {
+    const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
+    const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "";
+    const isConfigured = Boolean(supabaseUrl && supabaseAnonKey);
+
+    if (!isConfigured) {
+      res.json({
+        configured: false,
+        connected: false,
+        url: null,
+        message: "Supabase não configurado. Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY no arquivo .env."
+      });
+      return;
+    }
+
+    try {
+      const testResponse = await fetch(`${supabaseUrl}/rest/v1/`, {
+        headers: {
+          apikey: supabaseAnonKey,
+          Authorization: `Bearer ${supabaseAnonKey}`
+        }
+      });
+
+      const isConnected = testResponse.ok || testResponse.status === 404 || testResponse.status === 400 || testResponse.status === 200;
+
+      res.json({
+        configured: true,
+        connected: isConnected,
+        url: supabaseUrl,
+        statusCode: testResponse.status,
+        message: isConnected ? "Conexão com Supabase estabelecida com sucesso!" : `Falha na conexão: HTTP ${testResponse.status}`
+      });
+    } catch (err: any) {
+      res.json({
+        configured: true,
+        connected: false,
+        url: supabaseUrl,
+        message: `Erro ao conectar com Supabase: ${err.message}`
+      });
+    }
+  });
+
+  // ============================================================================
+  // BANCO DE DADOS PERSISTENTE & COMUNICAÇÃO EM TEMPO REAL (MURAL, CHAT E USERS)
+  // ============================================================================
+  const DATA_DIR = path.join(process.cwd(), "data");
+  const DB_FILE = path.join(DATA_DIR, "flowrh_db.json");
+
+  interface PersistentDB {
+    users: UserProfile[];
+    posts: Post[];
+    chat_channels: ChatChannel[];
+    chat_messages: ChatMessage[];
+    presence: Record<string, UserPresenceState>;
+  }
+
+  const getInitialSeedChannels = (): ChatChannel[] => [
+    {
+      id: "channel-rh-group",
+      company_id: "company-1",
+      type: "group",
+      name: "Gente & Gestão (RH)",
+      sector_id: "rh",
+      sector_name: "Gente & Gestão",
+      created_at: new Date(Date.now() - 86400000 * 5).toISOString(),
+      participants: [
+        "desenvolvimentoflowrh@gmail.com",
+        "carlos.eduardo@base44.com",
+        "lucas.silva@base44.com",
+        "ana.souza@base44.com",
+        "marcia.supervisor@base44.com"
+      ],
+      unread_count: 1,
+      unread_by: {
+        "desenvolvimentoflowrh@gmail.com": 1,
+        "carlos.eduardo@base44.com": 1,
+        "lucas.silva@base44.com": 1,
+        "marcia.supervisor@base44.com": 1
+      },
+      avatar: "https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=150"
+    },
+    {
+      id: "channel-ti-group",
+      company_id: "company-1",
+      type: "group",
+      name: "Engenharia & Produto",
+      sector_id: "engenharia",
+      sector_name: "Engenharia de Software",
+      created_at: new Date(Date.now() - 86400000 * 10).toISOString(),
+      participants: [
+        "desenvolvimentoflowrh@gmail.com",
+        "lucas.silva@base44.com",
+        "ana.souza@base44.com",
+        "marcia.supervisor@base44.com"
+      ],
+      unread_count: 0,
+      unread_by: {},
+      avatar: "https://images.unsplash.com/photo-1531482615713-2afd69097998?w=150"
+    },
+    {
+      id: "channel-dm-lucas-ana",
+      company_id: "company-1",
+      type: "direct",
+      name: "Ana Souza",
+      created_at: new Date(Date.now() - 86400000 * 2).toISOString(),
+      participants: ["desenvolvimentoflowrh@gmail.com", "ana.souza@base44.com"],
+      unread_count: 1,
+      unread_by: {
+        "desenvolvimentoflowrh@gmail.com": 1
+      }
+    },
+    {
+      id: "channel-dm-carlos",
+      company_id: "company-1",
+      type: "direct",
+      name: "Carlos Eduardo",
+      created_at: new Date(Date.now() - 86400000 * 1).toISOString(),
+      participants: ["desenvolvimentoflowrh@gmail.com", "carlos.eduardo@base44.com"],
+      unread_count: 0,
+      unread_by: {}
+    },
+    {
+      id: "channel-dm-lucas",
+      company_id: "company-1",
+      type: "direct",
+      name: "Lucas Silva",
+      created_at: new Date(Date.now() - 3600000 * 12).toISOString(),
+      participants: ["desenvolvimentoflowrh@gmail.com", "lucas.silva@base44.com"],
+      unread_count: 1,
+      unread_by: {
+        "desenvolvimentoflowrh@gmail.com": 1
+      }
+    },
+    {
+      id: "channel-aero-geral",
+      company_id: "company-2",
+      type: "group",
+      name: "Geral - Aero RH",
+      sector_id: "rh",
+      sector_name: "Recursos Humanos",
+      created_at: new Date(Date.now() - 86400000 * 3).toISOString(),
+      participants: ["roberto.alves@aero.com"],
+      unread_count: 0,
+      unread_by: {}
+    }
+  ];
+
+  const getInitialSeedMessages = (): ChatMessage[] => [
+    {
+      id: "msg-1",
+      channel_id: "channel-rh-group",
+      sender_email: "carlos.eduardo@base44.com",
+      sender_name: "Carlos Eduardo",
+      sender_avatar: "https://images.unsplash.com/photo-1560250097-0b93528c311a?w=150&auto=format&fit=crop&q=80",
+      content: "Olá equipe! Lembrete sobre o encerramento do fechamento de folha nesta sexta-feira às 17h.",
+      created_at: new Date(Date.now() - 3600000 * 4).toISOString()
+    },
+    {
+      id: "msg-2",
+      channel_id: "channel-rh-group",
+      sender_email: "desenvolvimentoflowrh@gmail.com",
+      sender_name: "Desenvolvimento Flow RH",
+      sender_avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+      content: "Perfeito Carlos! Todos os holerites e comprovantes de ponto já foram revisados no sistema.",
+      created_at: new Date(Date.now() - 3600000 * 3).toISOString()
+    },
+    {
+      id: "msg-3",
+      channel_id: "channel-rh-group",
+      sender_email: "ana.souza@base44.com",
+      sender_name: "Ana Souza",
+      sender_avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+      content: "Ótimo trabalho pessoal! Acabei de conferir meu recibo de férias pelo portal também.",
+      created_at: new Date(Date.now() - 1800000).toISOString()
+    },
+    {
+      id: "msg-ti-1",
+      channel_id: "channel-ti-group",
+      sender_email: "lucas.silva@base44.com",
+      sender_name: "Lucas Silva",
+      sender_avatar: "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150&auto=format&fit=crop&q=80",
+      content: "Pessoal, subi a atualização do módulo de comunicação sincronizada com o banco de dados!",
+      created_at: new Date(Date.now() - 7200000).toISOString()
+    },
+    {
+      id: "msg-ti-2",
+      channel_id: "channel-ti-group",
+      sender_email: "marcia.supervisor@base44.com",
+      sender_name: "Márcia Mendes",
+      sender_avatar: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80",
+      content: "Excelente Lucas! Agora conseguimos conversar entre todos os colaboradores da empresa em tempo real.",
+      created_at: new Date(Date.now() - 3600000).toISOString()
+    },
+    {
+      id: "msg-ana-1",
+      channel_id: "channel-dm-lucas-ana",
+      sender_email: "ana.souza@base44.com",
+      sender_name: "Ana Souza",
+      sender_avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+      content: "Oi! Você teria disponibilidade para conversarmos brevemente sobre os PDIs do próximo trimestre?",
+      created_at: new Date(Date.now() - 7200000).toISOString()
+    },
+    {
+      id: "msg-carlos-1",
+      channel_id: "channel-dm-carlos",
+      sender_email: "carlos.eduardo@base44.com",
+      sender_name: "Carlos Eduardo",
+      sender_avatar: "https://images.unsplash.com/photo-1560250097-0b93528c311a?w=150&auto=format&fit=crop&q=80",
+      content: "Tudo certo com a aprovação das solicitações de abono e férias da equipe.",
+      created_at: new Date(Date.now() - 86400000).toISOString()
+    },
+    {
+      id: "msg-lucas-1",
+      channel_id: "channel-dm-lucas",
+      sender_email: "lucas.silva@base44.com",
+      sender_name: "Lucas Silva",
+      sender_avatar: "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150&auto=format&fit=crop&q=80",
+      content: "Bom dia! Já enviei os documentos pendentes do meu treinamento de segurança.",
+      created_at: new Date(Date.now() - 14400000).toISOString()
+    }
+  ];
+
+  function loadDatabase(): PersistentDB {
+    try {
+      if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+      }
+      if (fs.existsSync(DB_FILE)) {
+        const raw = fs.readFileSync(DB_FILE, "utf-8");
+        const parsed = JSON.parse(raw);
+        if (parsed && Array.isArray(parsed.posts) && Array.isArray(parsed.chat_channels)) {
+          // Ensure unread_by exists on loaded channels
+          let migrated = false;
+          parsed.chat_channels.forEach((c: ChatChannel) => {
+            if (!c.unread_by) {
+              if (c.id === "channel-dm-lucas-ana" || c.id === "channel-rh-group") {
+                c.unread_by = {
+                  "desenvolvimentoflowrh@gmail.com": 1,
+                  "carlos.eduardo@base44.com": 1
+                };
+              } else {
+                c.unread_by = {};
+              }
+              migrated = true;
+            }
+          });
+          if (!parsed.presence || typeof parsed.presence !== "object") {
+            parsed.presence = {};
+            migrated = true;
+          }
+          if (migrated) {
+            saveDatabase(parsed);
+          }
+          return parsed;
+        }
+      }
+    } catch (err) {
+      console.warn("Aviso ao carregar banco de dados em disco, iniciando com seed:", err);
+    }
+
+    const initialDB: PersistentDB = {
+      users: [...INITIAL_USERS],
+      posts: [...INITIAL_POSTS],
+      chat_channels: getInitialSeedChannels(),
+      chat_messages: getInitialSeedMessages(),
+      presence: {}
+    };
+    saveDatabase(initialDB);
+    return initialDB;
+  }
+
+  function saveDatabase(dbData: PersistentDB) {
+    try {
+      if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+      }
+      fs.writeFileSync(DB_FILE, JSON.stringify(dbData, null, 2), "utf-8");
+    } catch (err) {
+      console.error("Erro ao salvar banco de dados em disco:", err);
+    }
+  }
+
+  const db = loadDatabase();
+
+  // Clientes conectados via Server-Sent Events (SSE) para atualização em tempo real
+  const sseClients = new Set<express.Response>();
+
+  function broadcastRealtimeEvent(event: string, payload: any) {
+    const message = `data: ${JSON.stringify({ event, payload, timestamp: new Date().toISOString() })}\n\n`;
+    for (const client of sseClients) {
+      try {
+        client.write(message);
+      } catch {
+        sseClients.delete(client);
+      }
+    }
+  }
+
+  app.get("/api/realtime/stream", (req, res) => {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders?.();
+
+    res.write(`data: ${JSON.stringify({ event: "connected", timestamp: new Date().toISOString() })}\n\n`);
+    res.write(`data: ${JSON.stringify({ event: "presence:sync", payload: db.presence || {}, timestamp: new Date().toISOString() })}\n\n`);
+    sseClients.add(res);
+
+    const keepAlive = setInterval(() => {
+      try {
+        res.write(`: keep-alive\n\n`);
+      } catch {
+        clearInterval(keepAlive);
+        sseClients.delete(res);
+      }
+    }, 25000);
+
+    req.on("close", () => {
+      clearInterval(keepAlive);
+      sseClients.delete(res);
+    });
+  });
+
+  // --- API: Estado de Presença em Tempo Real (Login / Logout / Seleção Manual) ---
+  app.get("/api/presence", (req, res) => {
+    const companyId = req.query.companyId as string | undefined;
+    const allPresence = db.presence || {};
+    if (!companyId) {
+      res.json({ presence: allPresence });
+      return;
+    }
+    const filtered: Record<string, UserPresenceState> = {};
+    for (const [key, state] of Object.entries(allPresence)) {
+      if (!state.companyId || state.companyId === companyId) {
+        filtered[key] = state;
+      }
+    }
+    res.json({ presence: filtered });
+  });
+
+  app.post("/api/presence", (req, res) => {
+    const { userId, userEmail, userName, userAvatar, companyId, status, isLoggedIn } = req.body || {};
+
+    if (!userId) {
+      res.status(400).json({ error: "userId é obrigatório para atualizar presença." });
+      return;
+    }
+
+    const validStatuses: UserPresenceStatus[] = ["available", "busy", "away", "offline"];
+    const resolvedStatus: UserPresenceStatus = validStatuses.includes(status) ? status : "available";
+
+    if (!db.presence) {
+      db.presence = {};
+    }
+
+    const matchedUser = db.users.find(
+      (u) => u.id === userId || (userEmail && u.email.toLowerCase() === String(userEmail).toLowerCase())
+    );
+
+    const canonicalId = matchedUser?.id || userId;
+    const canonicalEmail = (matchedUser?.email || userEmail || "").toLowerCase().trim();
+
+    const updatedState: UserPresenceState = {
+      userId: canonicalId,
+      userEmail: canonicalEmail || undefined,
+      userName: userName || matchedUser?.name || "Colaborador",
+      userAvatar: userAvatar || matchedUser?.avatar,
+      companyId: companyId || matchedUser?.company_id || "company-1",
+      status: resolvedStatus,
+      isLoggedIn: typeof isLoggedIn === "boolean" ? isLoggedIn : resolvedStatus !== "offline",
+      updatedAt: new Date().toISOString()
+    };
+
+    db.presence[canonicalId] = updatedState;
+    saveDatabase(db);
+
+    broadcastRealtimeEvent("presence:updated", updatedState);
+    res.json({ success: true, presence: updatedState, allPresence: db.presence });
+  });
+
+  app.post("/api/presence/logout", (req, res) => {
+    const { userId, userEmail } = req.body || {};
+
+    if (!userId && !userEmail) {
+      res.status(400).json({ error: "userId ou userEmail é obrigatório para logout." });
+      return;
+    }
+
+    if (!db.presence) {
+      db.presence = {};
+    }
+
+    const matchedUser = db.users.find(
+      (u) => u.id === userId || (userEmail && u.email.toLowerCase() === String(userEmail).toLowerCase())
+    );
+
+    const canonicalId = matchedUser?.id || userId;
+    const canonicalEmail = (matchedUser?.email || userEmail || "").toLowerCase().trim();
+    const existing = canonicalId ? db.presence[canonicalId] : undefined;
+
+    const offlineState: UserPresenceState = {
+      userId: canonicalId,
+      userEmail: canonicalEmail || existing?.userEmail,
+      userName: existing?.userName || matchedUser?.name || "Colaborador",
+      userAvatar: existing?.userAvatar || matchedUser?.avatar,
+      companyId: existing?.companyId || matchedUser?.company_id || "company-1",
+      status: "offline",
+      isLoggedIn: false,
+      updatedAt: new Date().toISOString()
+    };
+
+    if (canonicalId) {
+      db.presence[canonicalId] = offlineState;
+    }
+    saveDatabase(db);
+
+    broadcastRealtimeEvent("presence:updated", offlineState);
+    res.json({ success: true, presence: offlineState, allPresence: db.presence });
+  });
+
+  // --- API: Colaboradores (Users) ---
+  app.get("/api/users", (req, res) => {
+    const companyId = req.query.companyId as string | undefined;
+    const list = companyId
+      ? db.users.filter((u) => u.company_id === companyId)
+      : db.users;
+    res.json({ users: list });
+  });
+
+  app.post("/api/users", (req, res) => {
+    const newUser = req.body as UserProfile;
+    if (!newUser || !newUser.email || !newUser.name) {
+      res.status(400).json({ error: "Dados do colaborador inválidos." });
+      return;
+    }
+    const existingIdx = db.users.findIndex(
+      (u) => u.id === newUser.id || u.email.toLowerCase() === newUser.email.toLowerCase()
+    );
+    if (existingIdx >= 0) {
+      db.users[existingIdx] = { ...db.users[existingIdx], ...newUser };
+    } else {
+      db.users.unshift(newUser);
+      // Adicionar colaborador automaticamente ao canal geral da empresa
+      const companyGroup = db.chat_channels.find(
+        (c) => c.type === "group" && c.company_id === newUser.company_id
+      );
+      if (companyGroup && !companyGroup.participants.includes(newUser.email)) {
+        companyGroup.participants.push(newUser.email);
+      }
+    }
+    saveDatabase(db);
+    broadcastRealtimeEvent("users:updated", { users: db.users });
+    res.status(201).json({ user: newUser });
+  });
+
+  app.put("/api/users/:id", (req, res) => {
+    const { id } = req.params;
+    const updated = req.body as Partial<UserProfile>;
+    const idx = db.users.findIndex((u) => u.id === id);
+    if (idx === -1) {
+      res.status(404).json({ error: "Colaborador não encontrado." });
+      return;
+    }
+    db.users[idx] = { ...db.users[idx], ...updated };
+    saveDatabase(db);
+    broadcastRealtimeEvent("users:updated", { users: db.users });
+    res.json({ user: db.users[idx] });
+  });
+
+  app.delete("/api/users/:id", (req, res) => {
+    const { id } = req.params;
+    db.users = db.users.filter((u) => u.id !== id);
+    saveDatabase(db);
+    broadcastRealtimeEvent("users:updated", { users: db.users });
+    res.json({ success: true });
+  });
+
+  // --- API: Mural Corporativo (Posts, Likes, Comentários, Enquetes) ---
+  app.get("/api/mural/posts", (req, res) => {
+    const companyId = req.query.companyId as string | undefined;
+    const posts = companyId
+      ? db.posts.filter((p) => p.company_id === companyId)
+      : db.posts;
+    res.json({ posts });
+  });
+
+  app.post("/api/mural/posts", (req, res) => {
+    const postData = req.body as Post;
+    if (!postData || (!postData.content && !postData.media_url)) {
+      res.status(400).json({ error: "Conteúdo da publicação é obrigatório." });
+      return;
+    }
+    const newPost: Post = {
+      ...postData,
+      id: postData.id || `post-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      likes: Array.isArray(postData.likes) ? postData.likes : [],
+      comments: Array.isArray(postData.comments) ? postData.comments : [],
+      created_at: postData.created_at || new Date().toISOString()
+    };
+
+    // Evitar duplicação idempotente
+    const exists = db.posts.some((p) => p.id === newPost.id);
+    if (!exists) {
+      db.posts.unshift(newPost);
+      saveDatabase(db);
+    }
+
+    broadcastRealtimeEvent("mural:post_created", newPost);
+    res.status(201).json({ post: newPost });
+  });
+
+  app.put("/api/mural/posts/:id", (req, res) => {
+    const { id } = req.params;
+    const updates = req.body as Partial<Post>;
+    const idx = db.posts.findIndex((p) => p.id === id);
+
+    if (idx === -1) {
+      res.status(404).json({ error: "Publicação não encontrada no banco de dados." });
+      return;
+    }
+
+    db.posts[idx] = {
+      ...db.posts[idx],
+      ...updates,
+      id
+    };
+
+    saveDatabase(db);
+    broadcastRealtimeEvent("mural:post_updated", db.posts[idx]);
+    res.json({ post: db.posts[idx] });
+  });
+
+  app.delete("/api/mural/posts/:id", (req, res) => {
+    const { id } = req.params;
+    db.posts = db.posts.filter((p) => p.id !== id);
+    saveDatabase(db);
+    broadcastRealtimeEvent("mural:post_deleted", { id });
+    res.json({ success: true, id });
+  });
+
+  // --- API: Chat Corporativo em Tempo Real (Canais e Mensagens) ---
+  app.get("/api/chat/channels", (req, res) => {
+    const userEmail = (req.query.email as string | undefined)?.toLowerCase().trim();
+    const companyId = req.query.companyId as string | undefined;
+
+    let channels = db.chat_channels;
+
+    if (companyId) {
+      channels = channels.filter((c) => !c.company_id || c.company_id === companyId);
+    }
+
+    if (userEmail) {
+      channels = channels.filter(
+        (c) =>
+          c.participants.some((p) => p.toLowerCase() === userEmail) ||
+          (c.type === "group" && (!c.company_id || c.company_id === companyId))
+      );
+    }
+
+    // Anexar a última mensagem e a contagem de não lidas específica do colaborador
+    const enrichedChannels = channels.map((chan) => {
+      const chanMsgs = db.chat_messages
+        .filter((m) => m.channel_id === chan.id)
+        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      const lastMsg = chanMsgs.length > 0 ? chanMsgs[chanMsgs.length - 1] : chan.last_message;
+      const unreadForUser =
+        userEmail && chan.unread_by && typeof chan.unread_by[userEmail] === "number"
+          ? chan.unread_by[userEmail]
+          : 0;
+      return {
+        ...chan,
+        last_message: lastMsg,
+        unread_count: unreadForUser
+      };
+    });
+
+    res.json({ channels: enrichedChannels });
+  });
+
+  app.post("/api/chat/channels", (req, res) => {
+    const { type, name, participants, sector_id, sector_name, company_id, avatar } = req.body;
+
+    if (!Array.isArray(participants) || participants.length === 0) {
+      res.status(400).json({ error: "Lista de participantes é obrigatória." });
+      return;
+    }
+
+    const normalizedParticipants = Array.from(
+      new Set(participants.map((e: string) => e.trim().toLowerCase()))
+    );
+
+    // Se for conversa direta (DM), verifica no banco se já existe um canal entre esses 2 colaboradores
+    if (type === "direct" && normalizedParticipants.length === 2) {
+      const existingDM = db.chat_channels.find((c) => {
+        if (c.type !== "direct") return false;
+        const cParts = c.participants.map((p) => p.toLowerCase());
+        return (
+          cParts.length === 2 &&
+          cParts.includes(normalizedParticipants[0]) &&
+          cParts.includes(normalizedParticipants[1])
+        );
+      });
+
+      if (existingDM) {
+        res.json({ channel: existingDM, existed: true });
+        return;
+      }
+    }
+
+    const newChannel: ChatChannel = {
+      id: req.body.id || `chan-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      company_id: company_id || "company-1",
+      type: type === "group" ? "group" : "direct",
+      name: name || (type === "direct" ? "Conversa Direta" : "Novo Grupo"),
+      sector_id: sector_id || undefined,
+      sector_name: sector_name || undefined,
+      avatar: avatar || undefined,
+      created_at: new Date().toISOString(),
+      participants: normalizedParticipants,
+      unread_count: 0,
+      unread_by: {}
+    };
+
+    db.chat_channels.unshift(newChannel);
+    saveDatabase(db);
+    broadcastRealtimeEvent("chat:channel_created", newChannel);
+    res.status(201).json({ channel: newChannel, existed: false });
+  });
+
+  // Marcar canal específico como lido para um colaborador
+  app.post("/api/chat/channels/:id/read", (req, res) => {
+    const { id } = req.params;
+    const email = (req.body?.email as string | undefined)?.trim().toLowerCase();
+    if (!email) {
+      res.status(400).json({ error: "E-mail do colaborador é obrigatório." });
+      return;
+    }
+
+    const chan = db.chat_channels.find((c) => c.id === id);
+    if (chan) {
+      if (!chan.unread_by) chan.unread_by = {};
+      chan.unread_by[email] = 0;
+
+      // Marcar mensagens do canal como lidas por este colaborador
+      db.chat_messages.forEach((m) => {
+        if (m.channel_id === id) {
+          if (!Array.isArray(m.read_by)) m.read_by = [];
+          if (!m.read_by.includes(email)) {
+            m.read_by.push(email);
+          }
+        }
+      });
+
+      saveDatabase(db);
+      broadcastRealtimeEvent("chat:channel_read", { channel_id: id, email });
+    }
+
+    res.json({ success: true, channel_id: id });
+  });
+
+  // Marcar todas as conversas como lidas para um colaborador
+  app.post("/api/chat/read-all", (req, res) => {
+    const email = (req.body?.email as string | undefined)?.trim().toLowerCase();
+    if (!email) {
+      res.status(400).json({ error: "E-mail do colaborador é obrigatório." });
+      return;
+    }
+
+    db.chat_channels.forEach((chan) => {
+      if (!chan.unread_by) chan.unread_by = {};
+      if (chan.unread_by[email]) {
+        chan.unread_by[email] = 0;
+      }
+    });
+
+    db.chat_messages.forEach((m) => {
+      if (!Array.isArray(m.read_by)) m.read_by = [];
+      if (!m.read_by.includes(email)) {
+        m.read_by.push(email);
+      }
+    });
+
+    saveDatabase(db);
+    broadcastRealtimeEvent("chat:all_read", { email });
+    res.json({ success: true });
+  });
+
+  app.get("/api/chat/messages", (req, res) => {
+    const channelId = req.query.channelId as string | undefined;
+    if (channelId) {
+      const messages = db.chat_messages
+        .filter((m) => m.channel_id === channelId)
+        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      res.json({ messages });
+      return;
+    }
+
+    // Retornar mapa completo de mensagens agrupadas por canal
+    const messagesMap: Record<string, ChatMessage[]> = {};
+    for (const msg of db.chat_messages) {
+      if (!messagesMap[msg.channel_id]) {
+        messagesMap[msg.channel_id] = [];
+      }
+      messagesMap[msg.channel_id].push(msg);
+    }
+    res.json({ messagesMap });
+  });
+
+  app.post("/api/chat/messages", (req, res) => {
+    const { id, channel_id, sender_email, sender_name, sender_avatar, content, attachment_url, attachment_name } = req.body;
+
+    if (!channel_id || !sender_email || (!content && !attachment_url)) {
+      res.status(400).json({ error: "Dados da mensagem incompletos." });
+      return;
+    }
+
+    const normalizedSender = sender_email.trim().toLowerCase();
+
+    const newMessage: ChatMessage = {
+      id: id || `msg-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      channel_id,
+      sender_email: normalizedSender,
+      sender_name: sender_name || undefined,
+      sender_avatar: sender_avatar || undefined,
+      content: (content || "").trim(),
+      attachment_url: attachment_url || undefined,
+      attachment_name: attachment_name || undefined,
+      read_by: [normalizedSender],
+      created_at: new Date().toISOString()
+    };
+
+    // Idempotência: evita duplicar se já existir com mesmo ID
+    const alreadyExists = db.chat_messages.some((m) => m.id === newMessage.id);
+    if (!alreadyExists) {
+      db.chat_messages.push(newMessage);
+      // Garantir que o remetente está na lista de participantes do canal e incrementar unread_by para os demais participantes
+      const chan = db.chat_channels.find((c) => c.id === channel_id);
+      if (chan) {
+        chan.last_message = newMessage;
+        if (!chan.participants.some((p) => p.toLowerCase() === normalizedSender)) {
+          chan.participants.push(normalizedSender);
+        }
+        if (!chan.unread_by) chan.unread_by = {};
+        chan.participants.forEach((participantEmail) => {
+          const pLower = participantEmail.trim().toLowerCase();
+          if (pLower !== normalizedSender) {
+            chan.unread_by![pLower] = (chan.unread_by![pLower] || 0) + 1;
+          }
+        });
+      }
+      saveDatabase(db);
+    }
+
+    broadcastRealtimeEvent("chat:message_created", newMessage);
+    res.status(201).json({ message: newMessage });
   });
 
   // Serve static files in production or inject Vite in development

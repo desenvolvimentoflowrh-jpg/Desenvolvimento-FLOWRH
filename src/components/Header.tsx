@@ -18,9 +18,14 @@ import {
   GraduationCap,
   Bot,
   ShieldCheck,
-  ArrowRight
+  ArrowRight,
+  Bell,
+  MessageSquare,
+  CheckCheck,
+  Hash
 } from "lucide-react";
 import { UserProfile, Company, UserRole, Post } from "../types";
+import { ChatChannel } from "../types/chat";
 import { FlowRhLogo } from "./FlowRhLogo";
 import { getTimeAgo } from "../utils/formatters";
 import { useUserPresence } from "../hooks/useUserPresence";
@@ -47,6 +52,10 @@ interface HeaderProps {
   pageTheme?: string;
   setPageTheme?: (theme: string) => void;
   onResetDatabase?: () => void;
+  unreadChatCount?: number;
+  unreadChannels?: ChatChannel[];
+  onSelectChatChannel?: (channelId: string) => void;
+  onMarkAllChatRead?: () => void;
 }
 
 const SYSTEM_MODULES = [
@@ -138,9 +147,14 @@ export const Header: React.FC<HeaderProps> = ({
   onResetDatabase = () => {
     localStorage.clear();
     window.location.reload();
-  }
+  },
+  unreadChatCount = 0,
+  unreadChannels = [],
+  onSelectChatChannel,
+  onMarkAllChatRead
 }) => {
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
 
   const { currentStatus, updateStatus, getUserPresence } = useUserPresence(currentUser);
@@ -419,8 +433,190 @@ export const Header: React.FC<HeaderProps> = ({
           </AnimatePresence>
         </div>
 
-        {/* Company & Profile Info */}
-        <div className="flex items-center gap-4">
+        {/* Notifications, Company & Profile Info */}
+        <div className="flex items-center gap-3 sm:gap-4">
+          {/* Chat Unread Notifications Bell */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => {
+                setIsNotificationsOpen(!isNotificationsOpen);
+                setIsProfileMenuOpen(false);
+              }}
+              className={`relative p-2 rounded-xl transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-white/30 ${
+                unreadChatCount > 0
+                  ? "bg-white/15 hover:bg-white/25 text-white"
+                  : "hover:bg-white/10 text-white/85 hover:text-white"
+              }`}
+              title={
+                unreadChatCount > 0
+                  ? `${unreadChatCount} ${unreadChatCount === 1 ? "mensagem não lida" : "mensagens não lidas"}`
+                  : "Notificações de Mensagens"
+              }
+              aria-label="Notificações de Mensagens"
+            >
+              <Bell className="w-5 h-5" />
+              {unreadChatCount > 0 && (
+                <span className="absolute -top-1 -right-1 flex h-5 min-w-5 px-1 items-center justify-center">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
+                  <span className="relative inline-flex items-center justify-center rounded-full h-4.5 min-w-4.5 px-1 text-[9px] font-black text-white bg-rose-600 border border-white/60 shadow-sm">
+                    {unreadChatCount > 99 ? "99+" : unreadChatCount}
+                  </span>
+                </span>
+              )}
+            </button>
+
+            <AnimatePresence>
+              {isNotificationsOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-45"
+                    onClick={() => setIsNotificationsOpen(false)}
+                  />
+                  <motion.div
+                    initial={{ opacity: 0, y: 10, scale: 0.96 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.96 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute right-0 mt-2.5 w-80 sm:w-96 bg-white rounded-2xl border border-slate-100 shadow-2xl overflow-hidden z-50 text-slate-800"
+                  >
+                    <div className="p-3.5 bg-gradient-to-r from-slate-50 to-white border-b border-slate-100 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-lg bg-blue-50 text-[#0043FF] flex items-center justify-center">
+                          <MessageSquare className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div className="text-xs font-extrabold text-slate-900 flex items-center gap-1.5">
+                            <span>Mensagens Não Lidas</span>
+                            {unreadChatCount > 0 && (
+                              <span className="px-1.5 py-0.5 bg-rose-600 text-white text-[9px] font-black rounded-full">
+                                {unreadChatCount}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[10px] text-slate-400">
+                            Comunicação em tempo real com colaboradores
+                          </div>
+                        </div>
+                      </div>
+                      {unreadChatCount > 0 && onMarkAllChatRead && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onMarkAllChatRead();
+                          }}
+                          className="text-[10px] font-bold text-[#0043FF] hover:bg-blue-50 px-2 py-1 rounded-lg transition flex items-center gap-1 cursor-pointer shrink-0"
+                          title="Marcar todas como lidas"
+                        >
+                          <CheckCheck className="w-3.5 h-3.5" />
+                          <span>Ler todas</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
+                      {unreadChannels.length === 0 ? (
+                        <div className="p-6 text-center text-slate-400">
+                          <CheckCheck className="w-8 h-8 text-emerald-500 mx-auto mb-2 opacity-80" />
+                          <p className="text-xs font-bold text-slate-700">
+                            Você está em dia com todas as mensagens!
+                          </p>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            Quando um colaborador enviar uma nova mensagem, ela aparecerá aqui.
+                          </p>
+                        </div>
+                      ) : (
+                        unreadChannels.map((chan) => {
+                          const otherEmail = chan.participants.find(
+                            (e) => e.toLowerCase() !== currentUser.email.toLowerCase()
+                          );
+                          const dmPartner =
+                            chan.type === "direct"
+                              ? users.find(
+                                  (u) => u.email.toLowerCase() === otherEmail?.toLowerCase()
+                                )
+                              : undefined;
+                          const displayName =
+                            dmPartner?.name ||
+                            chan.name ||
+                            chan.last_message?.sender_name ||
+                            "Colaborador";
+                          const displayAvatar =
+                            dmPartner?.avatar ||
+                            chan.avatar ||
+                            chan.last_message?.sender_avatar;
+
+                          return (
+                            <button
+                              key={chan.id}
+                              type="button"
+                              onClick={() => {
+                                setIsNotificationsOpen(false);
+                                onSelectChatChannel?.(chan.id);
+                                onNavigateTab?.("chat");
+                              }}
+                              className="w-full p-3 hover:bg-blue-50/50 transition text-left flex items-start gap-3 cursor-pointer"
+                            >
+                              {chan.type === "group" ? (
+                                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#0043FF] to-indigo-600 text-white flex items-center justify-center shrink-0 mt-0.5">
+                                  <Hash className="w-4 h-4" />
+                                </div>
+                              ) : (
+                                <AvatarWithStatus
+                                  src={displayAvatar}
+                                  alt={displayName}
+                                  status={dmPartner ? getUserPresence(dmPartner.id) : "available"}
+                                  size="md"
+                                />
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-xs font-extrabold text-slate-900 truncate">
+                                    {displayName}
+                                  </span>
+                                  <span className="px-1.5 py-0.5 bg-rose-600 text-white text-[9px] font-black rounded-full shrink-0">
+                                    {chan.unread_count} {chan.unread_count === 1 ? "nova" : "novas"}
+                                  </span>
+                                </div>
+                                {chan.last_message && (
+                                  <p className="text-[11px] font-semibold text-slate-600 line-clamp-2 mt-0.5">
+                                    {chan.type === "group" && chan.last_message.sender_name
+                                      ? `${chan.last_message.sender_name.split(" ")[0]}: `
+                                      : ""}
+                                    {chan.last_message.content || "📎 Anexo enviado"}
+                                  </p>
+                                )}
+                                {chan.last_message?.created_at && (
+                                  <span className="text-[9px] font-medium text-[#0043FF] mt-1 inline-block">
+                                    {getTimeAgo(chan.last_message.created_at)} • Clique para responder
+                                  </span>
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+
+                    <div className="p-2 bg-slate-50 border-t border-slate-100">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsNotificationsOpen(false);
+                          onNavigateTab?.("chat");
+                        }}
+                        className="w-full py-2 text-xs font-bold text-[#0043FF] hover:bg-blue-50 rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        <span>Abrir Central de Comunicação (Chat)</span>
+                      </button>
+                    </div>
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+          </div>
+
           <div className="text-right hidden sm:block">
             <span className="inline-block bg-blue-700/60 text-blue-100 text-[10px] px-2 py-0.5 rounded font-bold uppercase mb-0.5">
               {activeCompany?.name}

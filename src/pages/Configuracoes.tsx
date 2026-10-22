@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   Settings,
@@ -11,10 +11,15 @@ import {
   Save,
   KeyRound,
   Sliders,
-  RefreshCw
+  RefreshCw,
+  Database,
+  Check,
+  AlertTriangle,
+  ArrowUpRight
 } from "lucide-react";
 import { UserProfile, UserRole, Company } from "../types";
 import { canEditSettings } from "../utils/rbac";
+import { isSupabaseConfigured } from "../services/supabase";
 
 interface ConfiguracoesProps {
   currentUser: UserProfile;
@@ -42,6 +47,51 @@ export const Configuracoes: React.FC<ConfiguracoesProps> = ({
   const [autoApproval, setAutoApproval] = useState(false);
   const [requireLocation, setRequireLocation] = useState(true);
   const [savedSuccess, setSavedSuccess] = useState(false);
+
+  const [supabaseStatus, setSupabaseStatus] = useState<{
+    loading: boolean;
+    checked: boolean;
+    configured: boolean;
+    connected: boolean;
+    message: string;
+    url?: string | null;
+  }>({
+    loading: false,
+    checked: false,
+    configured: isSupabaseConfigured,
+    connected: isSupabaseConfigured,
+    message: isSupabaseConfigured
+      ? "Supabase configurado no frontend."
+      : "Aguardando definição de VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY no arquivo .env."
+  });
+
+  const checkSupabaseHealth = async () => {
+    setSupabaseStatus((prev) => ({ ...prev, loading: true }));
+    try {
+      const res = await fetch("/api/supabase/status");
+      const data = await res.json();
+      setSupabaseStatus({
+        loading: false,
+        checked: true,
+        configured: data.configured,
+        connected: data.connected,
+        message: data.message,
+        url: data.url
+      });
+    } catch {
+      setSupabaseStatus({
+        loading: false,
+        checked: true,
+        configured: isSupabaseConfigured,
+        connected: false,
+        message: "Não foi possível testar o status pelo servidor."
+      });
+    }
+  };
+
+  useEffect(() => {
+    checkSupabaseHealth();
+  }, []);
 
   const canSave = canEditSettings(currentUser);
 
@@ -267,6 +317,76 @@ export const Configuracoes: React.FC<ConfiguracoesProps> = ({
                 <p className="text-[11px] text-slate-600">
                   Registro de ponto pessoal, consulta de holerites, comunicação e PDI.
                 </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Supabase Integration & Health Card */}
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                <Database className="w-4 h-4 text-emerald-600" /> Conexão Supabase
+              </h3>
+              <span
+                className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full flex items-center gap-1 ${
+                  supabaseStatus.connected
+                    ? "bg-emerald-100 text-emerald-800"
+                    : supabaseStatus.configured
+                    ? "bg-amber-100 text-amber-800"
+                    : "bg-slate-100 text-slate-600"
+                }`}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    supabaseStatus.connected
+                      ? "bg-emerald-500 animate-pulse"
+                      : supabaseStatus.configured
+                      ? "bg-amber-500"
+                      : "bg-slate-400"
+                  }`}
+                />
+                {supabaseStatus.connected
+                  ? "Conectado"
+                  : supabaseStatus.configured
+                  ? "Configurado"
+                  : "Modo Local (Mock)"}
+              </span>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <p className="text-slate-600 text-[11px] leading-relaxed">
+                {supabaseStatus.message}
+              </p>
+
+              {supabaseStatus.url && (
+                <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-100 font-mono text-[10px] text-slate-700 truncate">
+                  <span className="text-slate-400 select-none">URL: </span>
+                  {supabaseStatus.url}
+                </div>
+              )}
+
+              <div className="p-3 bg-emerald-50/50 rounded-xl border border-emerald-100 space-y-1">
+                <div className="font-bold text-emerald-900 flex items-center justify-between">
+                  <span>Migrations Prontas</span>
+                  <span className="text-[10px] bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded-full font-bold">
+                    7 Arquivos + Master
+                  </span>
+                </div>
+                <p className="text-[10px] text-emerald-700">
+                  Script unificado disponível em <code className="font-bold">supabase/schema_completo.sql</code> para rodar no SQL Editor do Supabase.
+                </p>
+              </div>
+
+              <div className="pt-1 flex gap-2">
+                <button
+                  type="button"
+                  onClick={checkSupabaseHealth}
+                  disabled={supabaseStatus.loading}
+                  className="flex-1 bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 px-3 rounded-xl transition flex items-center justify-center gap-1.5 text-xs cursor-pointer shadow-xs disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${supabaseStatus.loading ? "animate-spin" : ""}`} />
+                  {supabaseStatus.loading ? "Testando..." : "Testar Conexão"}
+                </button>
               </div>
             </div>
           </div>

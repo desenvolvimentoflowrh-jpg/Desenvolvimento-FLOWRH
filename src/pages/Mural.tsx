@@ -21,6 +21,9 @@ import { BADGE_OPTIONS, POST_CATEGORIES } from "../utils/constants";
 import { getTimeAgo } from "../utils/formatters";
 import { publishPostService } from "../services/muralService";
 import { canDeletePost } from "../utils/rbac";
+import { useUserPresence } from "../hooks/useUserPresence";
+import { AvatarWithStatus } from "../components/AvatarWithStatus";
+import { PRESENCE_STATUS_CONFIG } from "../types/presence";
 
 interface MuralProps {
   currentUser: UserProfile;
@@ -41,6 +44,7 @@ export const Mural: React.FC<MuralProps> = ({
   onUpdatePost,
   onDeletePost
 }) => {
+  const { getUserPresence } = useUserPresence(currentUser);
   const [selectedCategory, setSelectedCategory] = useState<string>("todos");
   const [newPostContent, setNewPostContent] = useState("");
   const [newPostCategory, setNewPostCategory] = useState<Post["category"]>("aviso");
@@ -482,10 +486,11 @@ export const Mural: React.FC<MuralProps> = ({
                 {/* Header */}
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-3 min-w-0">
-                    <img
+                    <AvatarWithStatus
                       src={post.user_avatar}
                       alt={post.user_name}
-                      className="w-10 h-10 rounded-full object-cover border border-slate-100 shrink-0"
+                      status={getUserPresence(post.user_id)}
+                      size="md"
                     />
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -711,24 +716,34 @@ export const Mural: React.FC<MuralProps> = ({
             <h3 className="font-bold text-slate-800 text-sm">Aniversariantes do Mês</h3>
           </div>
           <div className="space-y-3">
-            {companyUsers.slice(0, 3).map((u) => (
-              <div
-                key={u.id}
-                className="flex items-center gap-3 bg-pink-50/40 p-3 rounded-xl border border-pink-100/50"
-              >
-                <img
-                  src={u.avatar}
-                  alt={u.name}
-                  className="w-9 h-9 rounded-full object-cover border border-white"
-                />
-                <div className="min-w-0">
-                  <div className="text-xs font-bold text-slate-800 truncate">{u.name}</div>
-                  <div className="text-[10px] text-pink-600 font-semibold">
-                    {u.department}
+            {companyUsers.slice(0, 3).map((u) => {
+              const status = getUserPresence(u.id || u.email);
+              const statusCfg = PRESENCE_STATUS_CONFIG[status];
+              return (
+                <div
+                  key={u.id}
+                  className="flex items-center justify-between gap-3 bg-pink-50/40 p-3 rounded-xl border border-pink-100/50"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <AvatarWithStatus
+                      src={u.avatar}
+                      alt={u.name}
+                      status={status}
+                      size="md"
+                    />
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold text-slate-800 truncate">{u.name}</div>
+                      <div className="text-[10px] text-pink-600 font-semibold truncate">
+                        {u.department}
+                      </div>
+                    </div>
                   </div>
+                  <span className={`text-[10px] font-bold shrink-0 ${statusCfg.textColor}`}>
+                    {statusCfg.label}
+                  </span>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 

@@ -1,7 +1,7 @@
--- Migration: Módulo de Holerite & Folha de Pagamento
--- Created on 2026-08-16
--- Inclui tabelas de competências (payroll_periods), holerites individuais (payslips), 
--- regras de verbas (payroll_earning_rules), mapeamento eSocial (payroll_esocial_mapping) e auditoria.
+-- ==============================================================================
+-- FLOW RH - MIGRATION 04: MÓDULO DE HOLERITE & FOLHA DE PAGAMENTO
+-- Arquivo: supabase/migrations/2025_08_16_payroll_holerite.sql
+-- ==============================================================================
 
 -- 1. Criação dos tipos enumerados
 DO $$ BEGIN
@@ -33,13 +33,13 @@ EXCEPTION
 END $$;
 
 -- 2. Tabela de competências / períodos de folha
-CREATE TABLE IF NOT EXISTS payroll_periods (
+CREATE TABLE IF NOT EXISTS public.payroll_periods (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  company_id UUID NOT NULL,
+  company_id UUID NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
   reference_month INT NOT NULL CHECK (reference_month BETWEEN 1 AND 13), -- 13 para 13º salário
   reference_year INT NOT NULL CHECK (reference_year >= 2020),
   status payroll_period_status NOT NULL DEFAULT 'aberto',
-  closed_by UUID,
+  closed_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
   closed_at TIMESTAMPTZ,
   totals_json JSONB DEFAULT '{"bruto": 0, "liquido": 0, "inss": 0, "fgts": 0, "irrf": 0, "beneficios": 0, "descontos": 0}'::jsonb,
   alerts_json JSONB DEFAULT '[]'::jsonb,
@@ -49,11 +49,11 @@ CREATE TABLE IF NOT EXISTS payroll_periods (
 );
 
 -- 3. Tabela de holerites individuais
-CREATE TABLE IF NOT EXISTS payslips (
+CREATE TABLE IF NOT EXISTS public.payslips (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  payroll_period_id UUID NOT NULL REFERENCES payroll_periods(id) ON DELETE CASCADE,
-  user_id UUID NOT NULL,
-  company_id UUID NOT NULL,
+  payroll_period_id UUID NOT NULL REFERENCES public.payroll_periods(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  company_id UUID NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
   employee_snapshot JSONB NOT NULL, -- {name, cpf, pis, cargo, departamento, admitido_em, salario_base, jornada, cbo, banco, agencia, conta}
   earnings JSONB NOT NULL DEFAULT '[]'::jsonb, -- [{"code":"SAL_BASE","desc":"Salário Base","ref":220,"val":500000}]
   deductions JSONB NOT NULL DEFAULT '[]'::jsonb, -- [{"code":"INSS","desc":"INSS","ref":14,"val":45000}]
@@ -74,9 +74,9 @@ CREATE TABLE IF NOT EXISTS payslips (
 );
 
 -- 4. Configuração de regras de verbas da empresa
-CREATE TABLE IF NOT EXISTS payroll_earning_rules (
+CREATE TABLE IF NOT EXISTS public.payroll_earning_rules (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  company_id UUID NOT NULL,
+  company_id UUID NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
   code TEXT NOT NULL,
   description TEXT NOT NULL,
   type verba_type NOT NULL,
@@ -90,9 +90,9 @@ CREATE TABLE IF NOT EXISTS payroll_earning_rules (
 );
 
 -- 5. Mapeamento eSocial de rubricas
-CREATE TABLE IF NOT EXISTS payroll_esocial_mapping (
+CREATE TABLE IF NOT EXISTS public.payroll_esocial_mapping (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  company_id UUID NOT NULL,
+  company_id UUID NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
   rubrica_code TEXT NOT NULL,
   esocial_code TEXT NOT NULL,
   categoria_trabalhador TEXT NOT NULL DEFAULT '101', -- Empregado Geral
@@ -102,9 +102,9 @@ CREATE TABLE IF NOT EXISTS payroll_esocial_mapping (
 );
 
 -- 6. Configurações de Folha por Empresa
-CREATE TABLE IF NOT EXISTS payroll_company_settings (
+CREATE TABLE IF NOT EXISTS public.payroll_company_settings (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  company_id UUID NOT NULL UNIQUE,
+  company_id UUID NOT NULL UNIQUE REFERENCES public.companies(id) ON DELETE CASCADE,
   bank_code TEXT DEFAULT '001', -- 001 Banco do Brasil, 237 Bradesco, 341 Itaú, 104 Caixa, 033 Santander
   bank_agency TEXT DEFAULT '1234',
   bank_account TEXT DEFAULT '56789-0',
@@ -117,33 +117,95 @@ CREATE TABLE IF NOT EXISTS payroll_company_settings (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- 7. Índices para Otimização de Consultas
-CREATE INDEX IF NOT EXISTS idx_payroll_periods_company ON payroll_periods(company_id, reference_year, reference_month);
-CREATE INDEX IF NOT EXISTS idx_payslips_user ON payslips(user_id, status);
-CREATE INDEX IF NOT EXISTS idx_payslips_period ON payslips(payroll_period_id);
-CREATE INDEX IF NOT EXISTS idx_earning_rules_company ON payroll_earning_rules(company_id, is_active);
+-- 7. Histórico de Arquivos de Remessa Bancária (CNAB 240 / 400)
+CREATE TABLE IF NOT EXISTS public.payroll_bank_remittance_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id UUID NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
+  payroll_period_id UUID REFERENCES public.payroll_periods(id) ON DELETE SET NULL,
+  layout_type VARCHAR(10) NOT NULL CHECK (layout_type IN ('240', '400')),
+  bank_code VARCHAR(10) NOT NULL,
+  file_name TEXT NOT NULL,
+  total_records INT NOT NULL DEFAULT 0,
+  total_amount NUMERIC(14,2) NOT NULL DEFAULT 0.00,
+  file_url TEXT,
+  generated_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
--- 8. Configuração de Row Level Security (RLS)
-ALTER TABLE payroll_periods ENABLE ROW LEVEL SECURITY;
-ALTER TABLE payslips ENABLE ROW LEVEL SECURITY;
-ALTER TABLE payroll_earning_rules ENABLE ROW LEVEL SECURITY;
-ALTER TABLE payroll_esocial_mapping ENABLE ROW LEVEL SECURITY;
-ALTER TABLE payroll_company_settings ENABLE ROW LEVEL SECURITY;
+-- 8. Índices para Otimização de Consultas
+CREATE INDEX IF NOT EXISTS idx_payroll_periods_company ON public.payroll_periods(company_id, reference_year, reference_month);
+CREATE INDEX IF NOT EXISTS idx_payslips_user ON public.payslips(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_payslips_period ON public.payslips(payroll_period_id);
+CREATE INDEX IF NOT EXISTS idx_earning_rules_company ON public.payroll_earning_rules(company_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_bank_remittance_company ON public.payroll_bank_remittance_logs(company_id, created_at DESC);
 
--- Políticas de RLS para colaboradores (visualizar seus próprios holerites)
+-- 9. Configuração de Row Level Security (RLS)
+ALTER TABLE public.payroll_periods ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payslips ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payroll_earning_rules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payroll_esocial_mapping ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payroll_company_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payroll_bank_remittance_logs ENABLE ROW LEVEL SECURITY;
+
+-- Políticas de RLS para holerites
 CREATE POLICY "Colaborador visualiza seus próprios holerites" 
-  ON payslips FOR SELECT 
-  USING (auth.uid() = user_id OR auth.jwt() ->> 'role' IN ('supervisor', 'hr_manager', 'super_admin', 'gestor', 'lider'));
+  ON public.payslips FOR SELECT 
+  USING (
+    user_id = auth.uid() 
+    OR (company_id = public.get_auth_company_id() AND public.is_admin_or_manager())
+  );
 
--- Políticas de RLS para gestores e super admins (gerenciar períodos da empresa)
+CREATE POLICY "Gestores de RH gerenciam holerites da empresa" 
+  ON public.payslips FOR ALL 
+  USING (
+    company_id = public.get_auth_company_id() AND public.is_admin_or_manager()
+  );
+
+-- Políticas de RLS para períodos de folha
+CREATE POLICY "Visualizar periodos de folha da empresa" 
+  ON public.payroll_periods FOR SELECT 
+  USING (company_id = public.get_auth_company_id());
+
 CREATE POLICY "Gestores gerenciam periodos da sua empresa" 
-  ON payroll_periods FOR ALL 
-  USING (true);
+  ON public.payroll_periods FOR ALL 
+  USING (
+    company_id = public.get_auth_company_id() AND public.is_admin_or_manager()
+  );
 
-CREATE POLICY "Gestores gerenciam holerites da sua empresa" 
-  ON payslips FOR ALL 
-  USING (true);
+-- Políticas de regras de verbas e eSocial
+CREATE POLICY "Visualizar regras de verbas da empresa" 
+  ON public.payroll_earning_rules FOR SELECT 
+  USING (company_id = public.get_auth_company_id());
 
 CREATE POLICY "Gestores gerenciam regras de verbas" 
-  ON payroll_earning_rules FOR ALL 
-  USING (true);
+  ON public.payroll_earning_rules FOR ALL 
+  USING (
+    company_id = public.get_auth_company_id() AND public.is_admin_or_manager()
+  );
+
+CREATE POLICY "Visualizar mapeamento eSocial" 
+  ON public.payroll_esocial_mapping FOR SELECT 
+  USING (company_id = public.get_auth_company_id());
+
+CREATE POLICY "Gestores gerenciam mapeamento eSocial" 
+  ON public.payroll_esocial_mapping FOR ALL 
+  USING (
+    company_id = public.get_auth_company_id() AND public.is_admin_or_manager()
+  );
+
+-- Políticas de configurações de empresa e remessas bancárias
+CREATE POLICY "Visualizar configuracoes de folha" 
+  ON public.payroll_company_settings FOR SELECT 
+  USING (company_id = public.get_auth_company_id());
+
+CREATE POLICY "Gestores gerenciam configuracoes de folha" 
+  ON public.payroll_company_settings FOR ALL 
+  USING (
+    company_id = public.get_auth_company_id() AND public.is_admin_or_manager()
+  );
+
+CREATE POLICY "Gestores gerenciam remessas bancarias" 
+  ON public.payroll_bank_remittance_logs FOR ALL 
+  USING (
+    company_id = public.get_auth_company_id() AND public.is_admin_or_manager()
+  );

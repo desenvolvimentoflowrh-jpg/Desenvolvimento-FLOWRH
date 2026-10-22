@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 import { UserProfile, Company } from "../types";
 import { dataService } from "../services/dataService";
+import { syncLoginPresence, syncLogoutPresence } from "./useUserPresence";
 
 export function useAuth(initialUsers?: UserProfile[], initialCompanies?: Company[]) {
   const users = initialUsers || dataService.getUsers();
-  const companies = initialCompanies || dataService.getCompanies();
+  const _companies = initialCompanies || dataService.getCompanies();
 
   // Always demand authentication on initial load - initial screen is strictly Login
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
@@ -37,6 +38,8 @@ export function useAuth(initialUsers?: UserProfile[], initialCompanies?: Company
   }, [isLoggedIn]);
 
   const handleLogout = () => {
+    // Transition logged-out collaborator to Offline in real time for all other users
+    syncLogoutPresence(currentUser);
     setIsLoggedIn(false);
     localStorage.removeItem("flow_is_logged_in");
     localStorage.removeItem("flow_current_user");
@@ -48,15 +51,23 @@ export function useAuth(initialUsers?: UserProfile[], initialCompanies?: Company
     setActiveCompanyId(user.company_id);
     localStorage.setItem("flow_is_logged_in", "true");
     localStorage.setItem("flow_current_user", JSON.stringify(user));
+    // Automatically set collaborator status to "available" (Disponível) upon login
+    syncLoginPresence(user);
   };
 
   const switchCompany = (companyId: string) => {
     setActiveCompanyId(companyId);
     const tenantUser = users.find((u) => u.company_id === companyId);
     if (tenantUser) {
+      if (currentUser && currentUser.id !== tenantUser.id) {
+        syncLogoutPresence(currentUser);
+      }
       setCurrentUser(tenantUser);
+      syncLoginPresence(tenantUser);
     } else if (currentUser) {
-      setCurrentUser({ ...currentUser, company_id: companyId });
+      const updated = { ...currentUser, company_id: companyId };
+      setCurrentUser(updated);
+      syncLoginPresence(updated);
     }
   };
 

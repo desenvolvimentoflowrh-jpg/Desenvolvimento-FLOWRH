@@ -1,5 +1,5 @@
 -- ==============================================================================
--- FLOW RH - MIGRATION DE SEGURANÇA, AUDITORIA IMUTÁVEL E LGPD COMPLIANCE
+-- FLOW RH - MIGRATION 05: SEGURANÇA, AUDITORIA IMUTÁVEL E LGPD COMPLIANCE
 -- Arquivo: supabase/migrations/2025_09_20_lgpd_audit.sql
 -- ==============================================================================
 
@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS public.audit_logs (
     table_name VARCHAR(64) NOT NULL,
     action VARCHAR(32) NOT NULL, -- INSERT, UPDATE, DELETE, PUNCH_CREATED, etc.
     user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
-    company_id UUID,
+    company_id UUID REFERENCES public.companies(id) ON DELETE CASCADE,
     record_id TEXT,
     payload JSONB NOT NULL DEFAULT '{}'::jsonb,
     prev_hash VARCHAR(64) NOT NULL,
@@ -34,21 +34,22 @@ CREATE OR REPLACE RULE audit_logs_no_update AS ON UPDATE TO public.audit_logs DO
 CREATE OR REPLACE RULE audit_logs_no_delete AS ON DELETE TO public.audit_logs DO INSTEAD NOTHING;
 
 -- Políticas RLS para audit_logs
-CREATE POLICY "Audit logs visíveis apenas para Administradores de RH e Auditores"
+CREATE POLICY "Audit logs visíveis para Administradores de RH da empresa"
     ON public.audit_logs FOR SELECT
     USING (
-        auth.jwt() ->> 'role' IN ('super_admin', 'hr_manager', 'auditor')
+        (company_id = public.get_auth_company_id() AND public.is_admin_or_manager())
+        OR public.get_auth_role() = 'super_admin'
         OR (auth.uid() = user_id AND action LIKE 'LGPD%')
     );
 
 -- 3. TABELA DE CONSENTIMENTOS LGPD (ART. 7º, I E ART. 8º DA LEI 13.709/2018)
 CREATE TABLE IF NOT EXISTS public.user_consents (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL,
-    necessary BOOLEAN NOT NULL DEFAULT TRUE, -- Execução de contrato e cumprimento de lei (sempre true)
-    analytics BOOLEAN NOT NULL DEFAULT FALSE,
-    marketing BOOLEAN NOT NULL DEFAULT FALSE,
-    hr_sharing BOOLEAN NOT NULL DEFAULT TRUE, -- Compartilhamento interno de aniversariantes e reconhecimentos
+    user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    necessary BOOLEAN NOT NULL DEFAULT true, -- Execução de contrato e cumprimento de lei (sempre true)
+    analytics BOOLEAN NOT NULL DEFAULT false,
+    marketing BOOLEAN NOT NULL DEFAULT false,
+    hr_sharing BOOLEAN NOT NULL DEFAULT true, -- Compartilhamento interno de aniversariantes e reconhecimentos
     consent_version VARCHAR(16) NOT NULL DEFAULT '1.0',
     ip_address VARCHAR(45),
     user_agent TEXT,
@@ -63,11 +64,22 @@ CREATE POLICY "Usuário gerencia seu próprio consentimento LGPD"
     USING (auth.uid() = user_id)
     WITH CHECK (auth.uid() = user_id);
 
+CREATE POLICY "Gestores de RH visualizam consentimentos da empresa"
+    ON public.user_consents FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.users u
+            WHERE u.id = user_consents.user_id 
+            AND u.company_id = public.get_auth_company_id() 
+            AND public.is_admin_or_manager()
+        )
+    );
+
 -- 4. TABELA DE SOLICITAÇÕES DOS TITULARES (PORTAL LGPD)
 CREATE TABLE IF NOT EXISTS public.lgpd_requests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL,
-    company_id UUID,
+    user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    company_id UUID REFERENCES public.companies(id) ON DELETE CASCADE,
     protocol VARCHAR(32) UNIQUE NOT NULL,
     request_type VARCHAR(32) NOT NULL, -- acesso, retificacao, exclusao, portabilidade, oposicao
     status VARCHAR(24) NOT NULL DEFAULT 'pendente', -- pendente, em_analise, concluido, rejeitado
@@ -77,6 +89,9 @@ CREATE TABLE IF NOT EXISTS public.lgpd_requests (
     resolved_at TIMESTAMP WITH TIME ZONE
 );
 
+CREATE INDEX IF NOT EXISTS idx_lgpd_requests_user ON public.lgpd_requests(user_id);
+CREATE INDEX IF NOT EXISTS idx_lgpd_requests_company ON public.lgpd_requests(company_id, status);
+
 ALTER TABLE public.lgpd_requests ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Titular visualiza e cria suas próprias solicitações LGPD"
@@ -85,8 +100,8 @@ CREATE POLICY "Titular visualiza e cria suas próprias solicitações LGPD"
     WITH CHECK (auth.uid() = user_id);
 
 CREATE POLICY "RH gerencia solicitações da empresa"
-    ON public.lgpd_requests FOR SELECT
-    USING (auth.jwt() ->> 'role' IN ('super_admin', 'hr_manager', 'dpo'));
+    ON public.lgpd_requests FOR ALL
+    USING (company_id = public.get_auth_company_id() AND public.is_admin_or_manager());
 
 -- 5. TRIGGER DE AUDITORIA IMUTÁVEL COM HASH SHA-256 ENCADEADO
 CREATE OR REPLACE FUNCTION public.fn_audit_trigger()
@@ -162,7 +177,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 6. APLICAÇÃO DOS TRIGGERS NAS TABELAS SENSÍVEIS (SE AS TABELAS EXISTIREM)
+-- 6. APLICAÇÃO DOS TRIGGERS NAS TABELAS SENSÍVEIS
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'payslips') THEN
@@ -190,6 +205,13 @@ BEGIN
         DROP TRIGGER IF EXISTS trg_audit_bank_logs ON public.bank_logs;
         CREATE TRIGGER trg_audit_bank_logs
         AFTER INSERT OR UPDATE OR DELETE ON public.bank_logs
+        FOR EACH ROW EXECUTE FUNCTION public.fn_audit_trigger();
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'time_records') THEN
+        DROP TRIGGER IF EXISTS trg_audit_time_records ON public.time_records;
+        CREATE TRIGGER trg_audit_time_records
+        AFTER INSERT OR UPDATE OR DELETE ON public.time_records
         FOR EACH ROW EXECUTE FUNCTION public.fn_audit_trigger();
     END IF;
 END $$;

@@ -4,11 +4,12 @@ import {
   Paperclip,
   Smile,
   Image as ImageIcon,
-  FileText,
   Users,
   Download,
   X,
-  Hash
+  Hash,
+  CheckCheck,
+  BellRing
 } from "lucide-react";
 import { ChatChannel, ChatMessage } from "../../types/chat";
 import { UserProfile } from "../../types";
@@ -18,6 +19,7 @@ import { UserStatusBadge } from "../UserStatusBadge";
 
 interface ChatWindowProps {
   channel: ChatChannel;
+  allChannels?: ChatChannel[];
   messages: ChatMessage[];
   currentUser: UserProfile;
   allUsers: UserProfile[];
@@ -27,6 +29,7 @@ interface ChatWindowProps {
 
 export const ChatWindow: React.FC<ChatWindowProps> = ({
   channel,
+  allChannels = [],
   messages,
   currentUser,
   allUsers,
@@ -37,6 +40,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   const [selectedAttachment, setSelectedAttachment] = useState<string | null>(null);
   const [attachmentName, setAttachmentName] = useState<string | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [simulatingMessage, setSimulatingMessage] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -49,14 +53,22 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   // Find DM partner profile if type is direct
   const getDMUser = (): UserProfile | undefined => {
     if (channel.type !== "direct") return undefined;
-    const otherEmail = channel.participants.find((e) => e !== currentUser.email);
-    return allUsers.find((u) => u.email === otherEmail);
+    const otherEmail = channel.participants.find(
+      (e) => e.toLowerCase() !== currentUser.email.toLowerCase()
+    );
+    return allUsers.find((u) => u.email.toLowerCase() === otherEmail?.toLowerCase());
   };
 
   const dmUser = getDMUser();
   const channelTitle = dmUser?.name || channel.name || "Conversa Privada";
   const channelAvatar = dmUser?.avatar || channel.avatar;
-  const dmPresence = dmUser ? getUserPresence(dmUser.id) : "available";
+  const dmPresence = dmUser ? getUserPresence(dmUser.id || dmUser.email) : "offline";
+
+  const onlineParticipantsCount = channel.participants.filter((email) => {
+    const u = allUsers.find((usr) => usr.email.toLowerCase() === email.toLowerCase());
+    const status = getUserPresence(u?.id || email);
+    return status !== "offline";
+  }).length;
 
   const handleSend = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -67,6 +79,49 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
     setSelectedAttachment(null);
     setAttachmentName(null);
     setShowEmojiPicker(false);
+  };
+
+  // Simulate receiving an unread message from a colleague in another channel (to test real-time unread notifications)
+  const handleSimulateColleagueMessage = async () => {
+    if (simulatingMessage) return;
+    setSimulatingMessage(true);
+    try {
+      // Pick a channel OTHER than the currently open one so it triggers an unread notification!
+      const otherChannel =
+        allChannels.find((c) => c.id !== channel.id) || channel;
+      const otherColleagueEmail =
+        otherChannel.participants.find(
+          (e) => e.toLowerCase() !== currentUser.email.toLowerCase()
+        ) || "ana.souza@base44.com";
+      const colleagueProfile = allUsers.find(
+        (u) => u.email.toLowerCase() === otherColleagueEmail.toLowerCase()
+      );
+
+      const sampleMessages = [
+        "Oi! Você pode revisar o documento de avaliação de metas quando tiver um tempinho?",
+        "Acabei de atualizar o relatório do setor no sistema, depois dá uma olhada!",
+        "Pessoal, confirmando nossa reunião de alinhamento de hoje às 15h.",
+        "Tudo certo com o fechamento de ponto deste mês, obrigado pelo retorno!"
+      ];
+      const randomContent =
+        sampleMessages[Math.floor(Math.random() * sampleMessages.length)];
+
+      await fetch("/api/chat/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channel_id: otherChannel.id,
+          sender_email: otherColleagueEmail,
+          sender_name: colleagueProfile?.name || "Ana Souza",
+          sender_avatar: colleagueProfile?.avatar,
+          content: randomContent,
+        }),
+      });
+    } catch (err) {
+      console.warn("Erro ao simular mensagem:", err);
+    } finally {
+      setTimeout(() => setSimulatingMessage(false), 600);
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -82,7 +137,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
       };
       reader.readAsDataURL(file);
     } else {
-      // Mock file attachment preview URL for non-image files
       setSelectedAttachment("https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?w=600");
     }
   };
@@ -101,8 +155,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   return (
     <div className="flex-1 flex flex-col h-full bg-slate-50/50 relative overflow-hidden">
       {/* Header */}
-      <div className="p-4 bg-white border-b border-slate-200/80 flex items-center justify-between shadow-xs z-10">
-        <div className="flex items-center gap-3">
+      <div className="p-4 bg-white border-b border-slate-200/80 flex items-center justify-between gap-2 shadow-xs z-10">
+        <div className="flex items-center gap-3 min-w-0">
           {channel.type === "direct" ? (
             <AvatarWithStatus
               src={channelAvatar}
@@ -111,16 +165,16 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
               size="lg"
             />
           ) : (
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#0043FF] to-blue-700 text-white flex items-center justify-center font-extrabold shadow-xs">
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#0043FF] to-blue-700 text-white flex items-center justify-center font-extrabold shadow-xs shrink-0">
               <Hash className="w-6 h-6" />
             </div>
           )}
 
-          <div>
-            <div className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
-              <span>{channelTitle}</span>
+          <div className="min-w-0">
+            <div className="text-sm font-extrabold text-slate-900 flex items-center gap-2 truncate">
+              <span className="truncate">{channelTitle}</span>
               {channel.type === "group" && channel.sector_name && (
-                <span className="text-[10px] font-bold bg-blue-100 text-[#0043FF] px-2 py-0.5 rounded-md">
+                <span className="text-[10px] font-bold bg-blue-100 text-[#0043FF] px-2 py-0.5 rounded-md shrink-0">
                   {channel.sector_name}
                 </span>
               )}
@@ -133,14 +187,34 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                   {dmUser?.department && <span>• {dmUser.department}</span>}
                 </div>
               ) : (
-                <div className="flex items-center gap-1 text-slate-500">
-                  <Users className="w-3.5 h-3.5 text-slate-400" />
-                  <span>{channel.participants.length} participantes</span>
+                <div className="flex items-center gap-2 text-slate-500">
+                  <span className="flex items-center gap-1">
+                    <Users className="w-3.5 h-3.5 text-slate-400" />
+                    <span>{channel.participants.length} participantes</span>
+                  </span>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200/60">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    <span>{onlineParticipantsCount} online</span>
+                  </span>
                 </div>
               )}
             </div>
           </div>
         </div>
+
+        {/* Botão para testar recebimento de mensagem não lida em tempo real */}
+        <button
+          type="button"
+          onClick={handleSimulateColleagueMessage}
+          disabled={simulatingMessage}
+          className="px-3 py-1.5 bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-[#0043FF] border border-slate-200/80 rounded-xl text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
+          title="Simula o recebimento de uma mensagem de outro colaborador para testar o alerta de não lida"
+        >
+          <BellRing className="w-3.5 h-3.5 text-[#0043FF]" />
+          <span className="hidden sm:inline">
+            {simulatingMessage ? "Recebendo..." : "Simular Mensagem Recebida"}
+          </span>
+        </button>
       </div>
 
       {/* Messages Thread List */}
@@ -157,14 +231,22 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
           </div>
         ) : (
           messages.map((msg) => {
-            const isMe = msg.sender_email === currentUser.email;
-            const senderProfile = allUsers.find((u) => u.email === msg.sender_email);
-            const senderName = isMe ? "Você" : senderProfile?.name || msg.sender_email.split("@")[0];
-            const senderAvatar = isMe ? currentUser.avatar : senderProfile?.avatar;
+            const isMe = msg.sender_email.toLowerCase() === currentUser.email.toLowerCase();
+            const senderProfile = allUsers.find(
+              (u) => u.email.toLowerCase() === msg.sender_email.toLowerCase()
+            );
+            const senderName = isMe
+              ? "Você"
+              : senderProfile?.name || msg.sender_name || msg.sender_email.split("@")[0];
+            const senderAvatar = isMe
+              ? currentUser.avatar
+              : senderProfile?.avatar || msg.sender_avatar;
             const formattedTime = new Date(msg.created_at).toLocaleTimeString([], {
               hour: "2-digit",
               minute: "2-digit",
             });
+            const isReadByOthers =
+              Array.isArray(msg.read_by) && msg.read_by.length > 1;
 
             return (
               <div
@@ -175,7 +257,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                   <AvatarWithStatus
                     src={senderAvatar}
                     alt={senderName}
-                    status={senderProfile ? getUserPresence(senderProfile.id) : "offline"}
+                    status={getUserPresence(senderProfile?.id || msg.sender_email)}
                     size="sm"
                     className="mb-1"
                   />
@@ -228,11 +310,18 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                   )}
 
                   <div
-                    className={`text-[9px] text-right font-medium mt-1 ${
+                    className={`text-[9px] flex items-center justify-end gap-1 font-medium mt-1 ${
                       isMe ? "text-blue-200" : "text-slate-400"
                     }`}
                   >
-                    {formattedTime}
+                    <span>{formattedTime}</span>
+                    {isMe && (
+                      <CheckCheck
+                        className={`w-3.5 h-3.5 ${
+                          isReadByOthers ? "text-emerald-300" : "text-blue-200/70"
+                        }`}
+                      />
+                    )}
                   </div>
                 </div>
 

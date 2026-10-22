@@ -15,6 +15,7 @@ import {
   ShieldCheck
 } from "lucide-react";
 import { UserProfile, UserRole, TimeRecord } from "../types";
+import { ChatChannel } from "../types/chat";
 import { canAccessGestao } from "../utils/rbac";
 import { getPontoPendingAlert } from "../utils/pontoUtils";
 
@@ -26,6 +27,8 @@ interface SidebarProps {
   setIsOnboarding?: (val: boolean) => void;
   currentUser: UserProfile;
   timeRecords?: TimeRecord[];
+  unreadChatCount?: number;
+  unreadChannels?: ChatChannel[];
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -35,7 +38,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isOnboarding = false,
   setIsOnboarding,
   currentUser,
-  timeRecords = []
+  timeRecords = [],
+  unreadChatCount = 0,
+  unreadChannels = []
 }) => {
   const pontoAlert = getPontoPendingAlert(timeRecords, currentUser?.id || "");
   const handleTabClick = (tab: string) => {
@@ -109,20 +114,76 @@ export const Sidebar: React.FC<SidebarProps> = ({
         className={`flex flex-col items-center group relative w-14 h-14 rounded-2xl transition-all duration-300 cursor-pointer ${
           isTabActive("chat", ["comunicacao"])
             ? "bg-[#0043FF] text-white scale-105 shadow-lg shadow-blue-500/20 border border-blue-400/30"
+            : unreadChatCount > 0
+            ? "bg-blue-500/15 text-blue-100 hover:text-white hover:bg-blue-500/25 border border-blue-400/40 shadow-sm shadow-blue-500/10"
             : "bg-white/5 text-slate-400 hover:text-white hover:bg-white/10 border border-white/5"
         }`}
-        title="Comunicação Interna / Chat Privado e Grupos"
+        title={
+          unreadChatCount > 0
+            ? `${unreadChatCount} ${unreadChatCount === 1 ? "mensagem não lida" : "mensagens não lidas"} no Chat`
+            : "Comunicação Interna / Chat Privado e Grupos"
+        }
       >
         <div className="flex-1 flex items-center justify-center pt-1.5">
           <MessagesSquare
             className={`w-5 h-5 transition-transform duration-300 group-hover:scale-110 ${
-              isTabActive("chat", ["comunicacao"]) ? "text-white" : "text-[#60A5FA]"
+              isTabActive("chat", ["comunicacao"])
+                ? "text-white"
+                : unreadChatCount > 0
+                ? "text-blue-400"
+                : "text-[#60A5FA]"
             }`}
           />
         </div>
         <span className="text-[9px] pb-1.5 font-bold tracking-tight">Chat</span>
         {isTabActive("chat", ["comunicacao"]) && (
           <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-7 bg-[#0043FF] rounded-r" />
+        )}
+
+        {/* Badge de Notificação de Mensagens Não Lidas */}
+        {unreadChatCount > 0 && (
+          <span
+            className="absolute -top-1.5 -right-1.5 flex h-5 min-w-5 px-1 items-center justify-center z-20"
+            aria-label={`${unreadChatCount} mensagens não lidas`}
+          >
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
+            <span className="relative inline-flex items-center justify-center rounded-full h-4.5 min-w-4.5 px-1 text-[9px] font-black text-white bg-rose-600 border border-rose-400/60 shadow-md ring-2 ring-slate-900">
+              {unreadChatCount > 99 ? "99+" : unreadChatCount}
+            </span>
+          </span>
+        )}
+
+        {/* Tooltip de Pré-visualização de Conversas Não Lidas */}
+        {unreadChatCount > 0 && unreadChannels.length > 0 && (
+          <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 hidden group-hover:flex flex-col w-64 p-3 bg-slate-900/98 text-slate-100 rounded-2xl shadow-2xl border border-slate-700/80 z-50 text-left pointer-events-none backdrop-blur-md">
+            <div className="flex items-center justify-between gap-1.5 font-bold text-[11px] text-blue-400 mb-1.5">
+              <span>Mensagens Não Lidas</span>
+              <span className="px-1.5 py-0.5 rounded-full bg-rose-600 text-white text-[9px] font-black">
+                {unreadChatCount}
+              </span>
+            </div>
+            <div className="space-y-1.5 max-h-28 overflow-hidden">
+              {unreadChannels.slice(0, 3).map((chan) => (
+                <div key={chan.id} className="text-[10px] bg-slate-800/80 rounded-lg p-1.5 border border-slate-700/60">
+                  <div className="font-bold text-white truncate flex items-center justify-between">
+                    <span>{chan.name || "Conversa Direta"}</span>
+                    <span className="text-[9px] text-rose-400 font-extrabold">
+                      +{chan.unread_count}
+                    </span>
+                  </div>
+                  {chan.last_message && (
+                    <div className="text-slate-300 truncate mt-0.5">
+                      {chan.last_message.content}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="mt-2 pt-2 border-t border-slate-800 text-[9px] text-blue-400 font-bold flex items-center justify-between">
+              <span>Clique para ler e responder</span>
+              <span>&rarr;</span>
+            </div>
+          </div>
         )}
       </button>
 

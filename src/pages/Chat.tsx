@@ -1,18 +1,46 @@
 import React, { useState } from "react";
-import { MessageSquare, Sparkles } from "lucide-react";
+import { MessageSquare } from "lucide-react";
 import { UserProfile } from "../types";
+import { ChatChannel, ChatMessage } from "../types/chat";
 import { useChat } from "../hooks/useChat";
 import { useUserPresence } from "../hooks/useUserPresence";
 import { ChannelList } from "../components/chat/ChannelList";
 import { ChatWindow } from "../components/chat/ChatWindow";
 import { NewChatModal } from "../components/chat/NewChatModal";
 
+export interface SharedChatState {
+  channels: ChatChannel[];
+  activeChannel?: ChatChannel;
+  activeChannelId: string;
+  selectChannel: (channelId: string) => void;
+  messages: ChatMessage[];
+  sendMessage: (content: string, attachmentUrl?: string) => void;
+  createChannel: (
+    type: "direct" | "group",
+    name: string,
+    participantEmails: string[],
+    sectorId?: string,
+    sectorName?: string,
+    avatar?: string
+  ) => Promise<ChatChannel | null>;
+  startDirectMessage: (targetUser: UserProfile) => Promise<ChatChannel | null | undefined>;
+  markAllAsRead: () => Promise<void>;
+}
+
 interface ChatPageProps {
   currentUser: UserProfile;
   allUsers: UserProfile[];
+  chatState?: SharedChatState;
 }
 
-export const ChatPage: React.FC<ChatPageProps> = ({ currentUser, allUsers }) => {
+export const ChatPage: React.FC<ChatPageProps> = ({
+  currentUser,
+  allUsers,
+  chatState,
+}) => {
+  const fallbackChat = useChat(chatState ? null : currentUser, true);
+  const activeChat = chatState || fallbackChat;
+
   const {
     channels,
     activeChannel,
@@ -21,9 +49,11 @@ export const ChatPage: React.FC<ChatPageProps> = ({ currentUser, allUsers }) => 
     messages,
     sendMessage,
     createChannel,
-  } = useChat(currentUser);
+    startDirectMessage,
+    markAllAsRead,
+  } = activeChat;
 
-  const { getUserPresence } = useUserPresence(currentUser);
+  const { currentStatus, updateStatus, getUserPresence } = useUserPresence(currentUser);
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
 
   return (
@@ -33,8 +63,12 @@ export const ChatPage: React.FC<ChatPageProps> = ({ currentUser, allUsers }) => 
         channels={channels}
         activeChannelId={activeChannelId}
         onSelectChannel={selectChannel}
+        onStartDirectMessage={startDirectMessage}
+        onMarkAllAsRead={markAllAsRead}
         currentUser={currentUser}
         allUsers={allUsers}
+        currentStatus={currentStatus}
+        onUpdateStatus={updateStatus}
         getUserPresence={getUserPresence}
         onOpenNewChatModal={() => setIsNewChatModalOpen(true)}
       />
@@ -43,6 +77,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({ currentUser, allUsers }) => 
       {activeChannel ? (
         <ChatWindow
           channel={activeChannel}
+          allChannels={channels}
           messages={messages}
           currentUser={currentUser}
           allUsers={allUsers}

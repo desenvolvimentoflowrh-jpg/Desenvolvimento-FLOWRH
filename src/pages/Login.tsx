@@ -167,14 +167,9 @@ export const Login: React.FC<LoginProps> = ({
 
             {/* Password Input */}
             <div>
-              <div className="flex justify-between items-center mb-1">
-                <label className="block text-[10px] font-bold uppercase text-slate-500 tracking-wider">
-                  Senha de Acesso
-                </label>
-                <span className="text-[9px] text-slate-400 font-medium">
-                  Senha padrão para teste: 123456
-                </span>
-              </div>
+              <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1 tracking-wider">
+                Senha de Acesso
+              </label>
               <div className="relative">
                 <input
                   type={showPassword ? "text" : "password"}

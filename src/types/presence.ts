@@ -2,9 +2,12 @@ export type UserPresenceStatus = "available" | "busy" | "away" | "offline";
 
 export interface UserPresenceState {
   userId: string;
+  userEmail?: string;
   userName?: string;
   userAvatar?: string;
+  companyId?: string;
   status: UserPresenceStatus;
+  isLoggedIn?: boolean;
   updatedAt: string;
 }
 
